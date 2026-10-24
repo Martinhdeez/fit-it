@@ -10,6 +10,7 @@
   --surface-sunk: #151412;
   --bubble: #2f2d2a;
   --brand: #1e3a8a;
+  --brand-light: #3563d9;
   --brand-ink: #eef3ff;
   --on: #4cc47e;
   --on-ink: #0f1a13;
@@ -81,7 +82,6 @@ code {
   flex: none;
   width: 20px;
   height: 20px;
-  fill: var(--brand);
 }
 
 .mark path {
@@ -90,6 +90,10 @@ code {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.mark .mark-piece {
+  fill: var(--brand-ink);
 }
 
 /* The iframe clips anything outside it, so every shadow must fit inside this gap. */
