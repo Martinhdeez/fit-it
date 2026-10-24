@@ -40,7 +40,7 @@ def run(data, ctx):
   - For app routes, `data` is the parsed JSON body the app returned.
   - For virtual endpoints, `data` is `None`.
 
-### Cards
+### Cards and charts
 
 A virtual endpoint whose body is `{"card": {...}}` is a **card**: `embed.js` fetches every enabled own or subscribed `GET /x/...` entry of `GET /fitit/features` on page load and renders those that return a card in a "Fit-it" row at the top of the page's main content (Frappe/ERPNext: the visible workspace; otherwise `main` or `body`), styled with the host's CSS variables.
 
@@ -49,7 +49,16 @@ A virtual endpoint whose body is `{"card": {...}}` is a **card**: `embed.js` fet
           "currency": "EUR", "rows": [{"label": "Orders", "value": 3}]}}
 ```
 
-`title` and `value` (string or number) are required; `subtitle`, `format` (`currency`, `number`, `text`), `currency` (ISO code) and `rows` are optional. Any other body is not rendered.
+`title` and `value` (string or number) are required; `subtitle`, `format` (`currency`, `number`, `text`), `currency` (ISO code) and `rows` are optional.
+
+A body `{"chart": {...}}` is a **chart**, rendered in the same row as a full-width tile (with the host's Frappe Charts when `frappe.Chart` exists, otherwise a plain SVG bar chart):
+
+```json
+{"chart": {"title": "Revenue per customer", "type": "bar", "labels": ["Aurora Clinic", "Beta"],
+           "datasets": [{"name": "Revenue", "values": [1200, 800]}], "subtitle": "This month"}}
+```
+
+`title`, `labels` and `datasets` (each with numeric `values` aligned to `labels`) are required; `type` (`bar` default, `line`, `pie`, `donut`, `percentage`) and `subtitle` are optional. Any other body is not rendered.
 
 ## `ctx`
 

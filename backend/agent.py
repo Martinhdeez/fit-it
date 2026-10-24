@@ -44,6 +44,10 @@ How to work:
   "value": str or number, "subtitle": str, "format": "currency"|"number"|"text", "currency": str, "rows": [{"label":
   str, "value": str or number}]}} (only title and value required; keep values short). It shows up on the page
   automatically next to the app's own cards.
+- When the user asks for a NEW chart, write a hook on GET /x/<name> that returns {"chart": {"title": str, "type":
+  "bar"|"line"|"pie"|"donut"|"percentage", "labels": [str], "datasets": [{"name": str, "values": [number]}],
+  "subtitle": str}}; it also shows up on the page automatically. Changing an EXISTING overview chart stays on
+  dashboard_chart.get.
 - Name helper functions without a leading underscore.
 - Reply in the language of the user's latest message, in at most three sentences.
 

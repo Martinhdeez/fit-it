@@ -87,10 +87,22 @@
         "border-top:1px solid var(--border-color,#ededed)}" +
         ".fitit-card-r span:first-child{color:var(--text-muted,#7c7c7c)}" +
         ".fitit-card-badge{position:absolute;top:12px;right:12px;font-size:10px;font-weight:600;line-height:16px;" +
-        "padding:0 6px;border-radius:8px;background:#6d28d9;color:#fff}";
+        "padding:0 6px;border-radius:8px;background:#6d28d9;color:#fff}" +
+        ".fitit-card-chart{grid-column:1/-1;min-width:0}.fitit-card-chart svg{display:block;max-width:100%}";
       row = el("div", "fitit-card-row");
       row.appendChild(css);
+      var charts = [];
       list.forEach(function (c) {
+        if (c.kind === "chart") {
+          var box = el("div", "fitit-card fitit-card-chart"), body = el("div", "fitit-chart-body");
+          box.appendChild(el("div", "fitit-card-badge", "Fit-it"));
+          box.appendChild(el("div", "fitit-card-title", c.title));
+          if (c.subtitle) box.appendChild(el("div", "fitit-card-sub", c.subtitle));
+          box.appendChild(body);
+          row.appendChild(box);
+          charts.push([body, c]);
+          return;
+        }
         var card = el("div", "fitit-card");
         card.appendChild(el("div", "fitit-card-badge", "Fit-it"));
         card.appendChild(el("div", "fitit-card-title", c.title));
@@ -109,7 +121,30 @@
         row.appendChild(card);
       });
       place();
+      charts.forEach(function (x) { try { chart(x[0], x[1]); } catch (e) {} }); // needs layout: after place()
       setInterval(place, 1000); // SPA hosts (Frappe) swap the main content without a page load
+    }
+    function chart(body, c) {
+      if (window.frappe && frappe.Chart) {
+        return new frappe.Chart(body, { type: c.type || "bar", height: 240,
+          data: { labels: c.labels, datasets: c.datasets } });
+      }
+      // ponytail: fallback draws bars of the first dataset for every type; real line/pie when a non-Frappe host needs it
+      var v = c.datasets[0].values, max = Math.max.apply(null, v.concat([1])), w = 600, h = 200, bw = w / v.length;
+      var svg = '<svg viewBox="0 0 ' + w + " " + (h + 20) + '" width="100%" height="240">';
+      v.forEach(function (n, i) {
+        var bh = Math.max(0, n / max * h);
+        svg += '<rect x="' + (i * bw + bw * 0.2) + '" y="' + (h - bh) + '" width="' + bw * 0.6 + '" height="' + bh +
+          '" fill="#6d28d9" rx="3"></rect>';
+      });
+      body.innerHTML = svg + "</svg>";
+      v.forEach(function (n, i) {
+        var t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", i * bw + bw / 2); t.setAttribute("y", h + 15); t.setAttribute("text-anchor", "middle");
+        t.setAttribute("font-size", "11"); t.setAttribute("fill", "currentColor");
+        t.textContent = String(c.labels[i] == null ? "" : c.labels[i]).slice(0, 12);
+        body.firstChild.appendChild(t);
+      });
     }
     function place() {
       try {
@@ -127,8 +162,14 @@
       }).map(function (f) { return f.route.slice(4); });
       return Promise.all(routes.map(function (path) {
         return get(path).then(function (body) {
-          var c = body && body.card;
-          return c && typeof c === "object" && c.title != null && c.value != null ? c : null;
+          var c = body && body.card, g = body && body.chart;
+          if (c && typeof c === "object" && c.title != null && c.value != null) return c;
+          if (g && typeof g === "object" && Array.isArray(g.labels) && Array.isArray(g.datasets) && g.datasets.length &&
+              g.datasets.every(function (d) { return d && Array.isArray(d.values); })) {
+            g.kind = "chart";
+            return g;
+          }
+          return null;
         }, function () { return null; });
       }));
     }).then(function (list) { render(list.filter(Boolean)); }).catch(function () {});
