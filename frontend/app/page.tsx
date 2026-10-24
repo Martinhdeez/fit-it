@@ -398,6 +398,8 @@ export default function Page() {
       slot.socket = null;
       patch(key, (chat) => ({ ...chat, busy: false, connection: "lost" }));
       if (close.code === UNAUTHENTICATED) setSignedOut(true);
+      // The core restarts or the network blips: retry, except for closes that a retry cannot fix (4400, 4403).
+      else if (close.code !== 4400 && close.code !== 4403) setTimeout(() => connectWindow(key, conversationId), 2000);
     });
   }
 
@@ -700,7 +702,7 @@ export default function Page() {
     : active.connection === "connecting"
       ? "Connecting…"
       : active.connection === "lost"
-        ? "Connection lost. Close and reopen Fit-it to retry."
+        ? "Connection lost. Reconnecting…"
         : transcribingHere
           ? "Transcribing…"
           : micErrorKey === active.key
