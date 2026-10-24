@@ -1,9 +1,11 @@
 """End-to-end rehearsal of docs/product/demo-script.md, in process, with a scripted model.
 
 Written from the demo script, docs/plan/01-mvp/ and docs/specs/ only. One test per beat.
+Iteration 02 (HS2): fixtures moved from hook files to the database (hook-contract v2, storage v1).
 """
 
 import os
+import uuid
 from datetime import date
 
 import httpx
@@ -12,9 +14,18 @@ from fastapi.testclient import TestClient
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
+import hooks
 import trace
 from agent import agent
 from main import app
+
+# Until DB1 lands, psycopg and db are missing; keep the file collectable so tests fail, not error.
+try:
+    import psycopg
+
+    import db
+except ImportError:
+    psycopg = db = None
 
 DEMO_URL = os.environ.get("DEMO_URL", "http://demo:8001")
 WIDGET = '<script src="/fitit/embed.js" defer></script>'
@@ -70,10 +81,25 @@ ANSWER = "Done."
 
 
 @pytest.fixture
-def workspaces(tmp_path, monkeypatch):
+def database(monkeypatch):
+    base = os.environ["DATABASE_URL"]
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    url = f"{base}?options=-csearch_path%3D{schema}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.init()
+    yield url
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture
+def workspaces(database, monkeypatch):
+    """The test's own schema URL (iteration 01 used a temporary hook-file folder)."""
     monkeypatch.setenv("BASE_URL", DEMO_URL)
-    monkeypatch.setenv("WORKSPACES", str(tmp_path))
-    return tmp_path
+    monkeypatch.setenv("FITIT_AGENT_MESSAGES_PER_HOUR", "100000")
+    return database
 
 
 @pytest.fixture
@@ -94,8 +120,12 @@ def demo(path, user):
 
 
 def write_file(workspaces, user, name, code):
-    (workspaces / user).mkdir(parents=True, exist_ok=True)
-    (workspaces / user / f"{name}.py").write_text(code, encoding="utf-8")
+    hooks.save_hook(user, name, code)
+
+
+def sql(url, query, *args):
+    with psycopg.connect(url) as conn:
+        return conn.execute(query, args).fetchall()
 
 
 def demo_model(steps):
@@ -165,7 +195,7 @@ def test_beat_2_chat_streams_tools_hook_saved_text_done(workspaces):
     assert saved["route"] == "GET /api/invoices"
     assert '+ROUTE = "GET /api/invoices"' in saved["diff"].splitlines()
     assert events[4]["text"] == ANSWER
-    assert sorted(p.name for p in (workspaces / "gerente").iterdir()) == ["friday_discount.py"]
+    assert sql(workspaces, "SELECT name FROM hooks WHERE user_id = 'gerente'") == [("friday_discount",)]
 
 
 # Beat 3: after reload, Friday invoices are discounted for gerente only.
@@ -279,7 +309,7 @@ def test_beat_8_guard_rejects_import_os_three_times_and_saves_nothing(workspaces
 
     assert types(events) == ["tool", "hook_rejected"] * 3 + ["error", "done"]
     assert all(e["name"] == "server_info" and e["reason"] for e in events if e["type"] == "hook_rejected")
-    assert [p for p in workspaces.rglob("*") if p.is_file()] == []
+    assert sql(workspaces, "SELECT 1 FROM hooks") == [] and sql(workspaces, "SELECT 1 FROM hook_versions") == []
     assert gerente.get("/fitit/hooks").json() == []
 
 
@@ -296,7 +326,7 @@ def test_beat_broken_hook_fails_closed_with_502(workspaces):
     assert login("recepcion").get("/api/invoices").status_code == 200
 
 
-# Fallback beat: rehearsal hooks kept in workspaces still apply with no model at all.
+# Fallback beat: rehearsal hooks kept in the database still apply with no model at all.
 
 def test_beat_fallback_rehearsal_hooks_work_without_the_model(workspaces):
     write_file(workspaces, "gerente", "friday_discount", FRIDAY_DISCOUNT)

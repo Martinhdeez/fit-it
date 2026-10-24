@@ -1,10 +1,23 @@
-"""Acceptance tests for HR1 (hook runtime), written from docs/specs/hook-contract.md only."""
+"""Acceptance tests for HR1 (hook runtime), written from docs/specs/hook-contract.md only.
 
+Iteration 02 (HS2): fixtures moved from hook files to the database (hook-contract v2, storage v1).
+"""
+
+import os
 import textwrap
+import uuid
 
 import pytest
 
 import hooks
+
+# Until DB1 lands, psycopg and db are missing; keep the file collectable so tests fail, not error.
+try:
+    import psycopg
+
+    import db
+except ImportError:
+    psycopg = db = None
 
 USER = "alice"
 
@@ -33,9 +46,23 @@ class FakeApi:
 
 
 @pytest.fixture
-def ws(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACES", str(tmp_path))
-    return tmp_path
+def database(monkeypatch):
+    base = os.environ["DATABASE_URL"]
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    url = f"{base}?options=-csearch_path%3D{schema}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.init()
+    yield url
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture
+def ws(database):
+    """The test's own schema URL (iteration 01 used a temporary hook-file folder)."""
+    return database
 
 
 def hook(route, body="return data"):
@@ -44,9 +71,34 @@ def hook(route, body="return data"):
 
 
 def write(ws, user, filename, code):
-    folder = ws / user
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / filename).write_text(code, encoding="utf-8")
+    """Seeds a hook as iteration 01's `<name>.py` / `<name>.py.off` file did, through hooks.save_hook."""
+    name = filename.removesuffix(".off").removesuffix(".py")
+    hooks.save_hook(user, name, code)
+    if filename.endswith(".off"):
+        hooks.toggle_hook(user, name)
+
+
+def insert(ws, user, name, code, route="GET /api/x", enabled=True):
+    """Direct `hooks` row, for rows save_hook refuses (guard-failing code, invalid user id)."""
+    with psycopg.connect(ws) as conn:
+        conn.execute(
+            "INSERT INTO hooks (user_id, name, route, code, enabled, version) VALUES (%s, %s, %s, %s, %s, 1)",
+            (user, name, route, code, enabled),
+        )
+
+
+def sql(ws, query, *args):
+    with psycopg.connect(ws) as conn:
+        return conn.execute(query, args).fetchall()
+
+
+def stored_code(ws, user, name):
+    rows = sql(ws, "SELECT code FROM hooks WHERE user_id = %s AND name = %s", user, name)
+    return rows[0][0] if rows else None
+
+
+def no_rows(ws):
+    return sql(ws, "SELECT 1 FROM hooks") == [] and sql(ws, "SELECT 1 FROM hook_versions") == []
 
 
 def ctx(user=USER, api=None):
@@ -54,7 +106,9 @@ def ctx(user=USER, api=None):
 
 
 def run(user, method, path, data, c=None):
-    return hooks.run_hooks(user, method, path, data, c if c is not None else ctx(user))
+    """run_hooks with v2 `applied` entries reduced to their names (hook-contract v2, change 3)."""
+    result, applied = hooks.run_hooks(user, method, path, data, c if c is not None else ctx(user))
+    return result, [entry["name"] for entry in applied]
 
 
 # REQ-HR1-1 -----------------------------------------------------------------
@@ -125,7 +179,7 @@ def test_REQ_HR1_1_rejects_invalid_python(ws):
 def test_REQ_HR1_1_save_hook_rejects_guarded_code(ws):
     with pytest.raises(ValueError):
         hooks.save_hook(USER, "bad", "import os\n" + hook("GET /api/x"))
-    assert not (ws / USER / "bad.py").exists()
+    assert no_rows(ws)
 
 
 # REQ-HR1-2 -----------------------------------------------------------------
@@ -191,8 +245,7 @@ def test_REQ_HR1_3_spec_example_runs(ws):
 def test_REQ_HR1_4_save_writes_file(ws):
     code = hook("GET /api/x")
     hooks.save_hook(USER, "my_hook", code)
-    path = ws / USER / "my_hook.py"
-    assert path.read_text(encoding="utf-8") == code
+    assert stored_code(ws, USER, "my_hook") == code
 
 
 def test_REQ_HR1_4_save_returns_diff_from_empty(ws):
@@ -210,20 +263,20 @@ def test_REQ_HR1_4_save_returns_diff_from_previous(ws):
     assert '-ROUTE = "GET /api/old"' in lines
     assert '+ROUTE = "GET /api/new"' in lines
     assert not any(l.startswith(("+", "-")) and "def run" in l for l in lines)
-    assert (ws / USER / "my_hook.py").read_text(encoding="utf-8") == hook("GET /api/new")
+    assert stored_code(ws, USER, "my_hook") == hook("GET /api/new")
 
 
 def test_REQ_HR1_4_save_accepts_40_char_name(ws):
     name = "a" * 40
     hooks.save_hook(USER, name, hook("GET /api/x"))
-    assert (ws / USER / f"{name}.py").exists()
+    assert stored_code(ws, USER, name) == hook("GET /api/x")
 
 
 def test_REQ_HR1_4_save_replaces_disabled_hook_enabled(ws):
     write(ws, USER, "my_hook.py.off", hook("GET /api/old"))
     hooks.save_hook(USER, "my_hook", hook("GET /api/new"))
-    assert (ws / USER / "my_hook.py").read_text(encoding="utf-8") == hook("GET /api/new")
-    assert not (ws / USER / "my_hook.py.off").exists()
+    assert stored_code(ws, USER, "my_hook") == hook("GET /api/new")
+    assert sql(ws, "SELECT enabled FROM hooks WHERE user_id = %s AND name = %s", USER, "my_hook") == [(True,)]
 
 
 @pytest.mark.parametrize("name", [
@@ -232,13 +285,13 @@ def test_REQ_HR1_4_save_replaces_disabled_hook_enabled(ws):
 def test_REQ_HR1_4_invalid_name_writes_nothing(ws, name):
     with pytest.raises(ValueError):
         hooks.save_hook(USER, name, hook("GET /api/x"))
-    assert [p for p in ws.rglob("*") if p.is_file()] == []
+    assert no_rows(ws)
 
 
 def test_REQ_HR1_4_invalid_code_writes_nothing(ws):
     with pytest.raises(ValueError):
         hooks.save_hook(USER, "my_hook", hook("GET /api/x", "return eval('1')"))
-    assert [p for p in ws.rglob("*") if p.is_file()] == []
+    assert no_rows(ws)
 
 
 def test_REQ_HR1_4_invalid_code_keeps_previous(ws):
@@ -246,7 +299,7 @@ def test_REQ_HR1_4_invalid_code_keeps_previous(ws):
     hooks.save_hook(USER, "my_hook", good)
     with pytest.raises(ValueError):
         hooks.save_hook(USER, "my_hook", "import os\n" + good)
-    assert (ws / USER / "my_hook.py").read_text(encoding="utf-8") == good
+    assert stored_code(ws, USER, "my_hook") == good
 
 
 # REQ-HR1-5 -----------------------------------------------------------------
@@ -365,7 +418,7 @@ def test_REQ_HR1_6_user_id_prefix_does_not_leak(ws):
 @pytest.mark.parametrize("user", ["../alice", "alice/..", ".", "..", "", "a" * 65])
 def test_REQ_HR1_6_invalid_user_id_gets_no_hooks(ws, user):
     hooks.save_hook("alice", "mine", hook("GET /api/x", "return 'alice'"))
-    write(ws, "", "root.py", hook("GET /api/x", "return 'root'"))
+    insert(ws, user, "root", hook("GET /api/x", "return 'root'"))
     assert run(user, "GET", "/api/x", "orig") == ("orig", [])
 
 
@@ -382,13 +435,11 @@ def test_REQ_HR1_7_toggle_disables_then_reenables(ws):
 
     assert hooks.toggle_hook(USER, "h") is False
     assert run(USER, "GET", "/api/x", "orig") == ("orig", [])
-    assert (ws / USER / "h.py.off").exists()
-    assert not (ws / USER / "h.py").exists()
+    assert sql(ws, "SELECT enabled FROM hooks WHERE user_id = %s AND name = 'h'", USER) == [(False,)]
 
     assert hooks.toggle_hook(USER, "h") is True
     assert run(USER, "GET", "/api/x", "orig") == ("changed", ["h"])
-    assert (ws / USER / "h.py").exists()
-    assert not (ws / USER / "h.py.off").exists()
+    assert sql(ws, "SELECT enabled FROM hooks WHERE user_id = %s AND name = 'h'", USER) == [(True,)]
 
 
 def test_REQ_HR1_7_toggle_off_file_enables(ws):
@@ -451,7 +502,7 @@ def test_REQ_HR1_8_hasattr_call(ws):
 
 
 def test_REQ_HR1_8_guard_rejected_file_on_load(ws):
-    write(ws, USER, "evil.py", "import os\n" + hook("GET /api/x"))
+    insert(ws, USER, "evil", "import os\n" + hook("GET /api/x"))
     with pytest.raises(hooks.HookError) as exc:
         run(USER, "GET", "/api/x", [])
     assert exc.value.hook == "evil"
