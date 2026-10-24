@@ -88,6 +88,29 @@ def test_guard_rejects_shape(code):
         hooks.check_code(code)
 
 
+@pytest.mark.parametrize("code, reason", [
+    # generator / coroutine / frame / traceback / code introspection
+    *[(f"x = data.{a}x\n", "private attribute") for a in hooks.FRAME_PREFIXES],
+    # str.format reads attributes named inside the string
+    ('x = "{}".format(data)\n', "attribute 'format'"),
+    ('x = "{}".format_map(data)\n', "attribute 'format_map'"),
+    ("x = data.mro\n", "attribute 'mro'"),
+    # a handler or finally could swallow the time limit
+    ("def f():\n    try:\n        pass\n    except:\n        pass\n", "try, with and async"),
+    ("def f():\n    try:\n        pass\n    finally:\n        pass\n", "try, with and async"),
+    ("def f():\n    with data:\n        pass\n", "try, with and async"),
+    ("async def f():\n    pass\n", "try, with and async"),
+])
+def test_guard_rejects_escapes(code, reason):
+    with pytest.raises(ValueError, match=reason):
+        hooks.check_code(code + hook("GET /a"))
+
+
+def test_guard_keeps_generators():
+    body = "return [sum(x for x in range(3)), datetime.now().year, [r for r in data]]"
+    assert hooks.check_code(hook("GET /a", body)) == ("GET", "/a")
+
+
 def test_guard_accepts_example():
     assert hooks.check_code(EXAMPLE) == ("GET", "/api/invoices")
     assert hooks.check_code(hook("DELETE /api/patients/{id}")) == ("DELETE", "/api/patients/{id}")

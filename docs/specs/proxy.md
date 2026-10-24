@@ -12,6 +12,7 @@ Iteration 04. The v3 text is in git history (`git show 5c656ce:docs/specs/proxy.
 | 2 | New route `GET /fitit/conversations` ("Core routes"). | No (addition) | CV1 |
 | 3 | `DELETE /fitit/history` takes an optional `conversation` query parameter; without it, all of the user's conversations are cleared, as in v3 ("Core routes"). | No | CV1 |
 | 4 | New route `POST /fitit/transcribe`. The core sends the audio to OpenAI (`gpt-4o-mini-transcribe`) with `OPENAI_API_KEY`. | No (addition) | widget |
+| 5 | Hardening: cross-origin non-GET `/fitit/*` is `403` and a cross-origin `/fitit/ws` closes with `4403` ("Origin check"); more request headers dropped and `x-forwarded-for` set ("Forwarding"); hooked responses carry `cache-control: private, no-store`; `/fitit/transcribe` caps the streamed body and shares the agent rate limit. | No (same-origin and non-browser clients unaffected) | hardening |
 
 Changes in v3 (iteration 03): subscribed features in the chain, `GET /fitit/features`, `/fitit/marketplace/...`, `DELETE /fitit/hooks/{name}` unpublishes.
 
@@ -40,7 +41,7 @@ For every request, the core calls `GET {BASE_URL}/api/me` with the request's coo
 ## Forwarding
 
 For any path not under `/fitit/` and not under `/x/`:
-1. The request is sent to `BASE_URL` with the same method, path, query string, body, cookies and headers, except `host`, `content-length`, `accept-encoding` and `connection`.
+1. The request is sent to `BASE_URL` with the same method, path, query string, body, cookies and headers, except `host`, `content-length`, `accept-encoding`, `connection`, `x-forwarded-for`, `x-forwarded-host`, `x-forwarded-proto`, `forwarded`, `transfer-encoding`, `te` and `upgrade`. The core adds `x-forwarded-for` with the client address it sees.
 2. The response status, body and headers are returned, except `content-length`, `content-encoding`, `transfer-encoding` and `connection`. Every `set-cookie` header is kept.
 
 ## Applying hooks
@@ -48,7 +49,7 @@ For any path not under `/fitit/` and not under `/x/`:
 When the user is not anonymous, the app's response status is 2xx and its `content-type` is `application/json`:
 - first the user's enabled marketplace subscriptions whose pinned code's `ROUTE` matches run, in subscription order, as the user ([ADR 0023](../adr/0023-features-run-as-the-subscriber.md)): `hooks.run_hooks(..., features=marketplace.active(user))` ([hook contract](hook-contract.md#features));
 - then every enabled hook of the user whose `ROUTE` matches the request method and path runs, in name order;
-- the response body is the last output, serialized as JSON;
+- the response body is the last output, serialized as JSON, with `cache-control: private, no-store`;
 - the response has the header `x-fitit-hooks` with the applied names, comma-separated in run order; a subscribed feature appears as `@<feature_id>` (for example `@3,@5,friday_discount`). Without matching hooks or features the header is absent;
 - each applied hook or feature emits one `hook.applied` event with its own `route`, `ms` and `logs`, taken from the entries `run_hooks` returns ([hook contract](hook-contract.md#module-contract)); for a feature `hook` is `@<feature_id>`.
 
@@ -71,6 +72,10 @@ When the user is not anonymous and the response `content-type` is `text/html`, t
 
 If a matching hook or subscribed feature raises, fails the guard when loaded, or breaches a limit (time, output size), the response is `502` with body `{"error": "hook_failed", "hook": "<name>", "detail": "<message>"}`, where `<name>` is `@<feature_id>` for a feature. The app's original body is never returned. The `hook.failed` event carries the same `hook` and the `route` of the failing code (`null` if it does not pass the guard).
 
+## Origin check
+
+A non-GET request under `/fitit/` whose `Origin` header is present and whose host[:port] differs from the request's `Host` is `403` `{"error": "forbidden", "detail": "cross-origin request"}`. The same check closes `WS /fitit/ws` with `4403`. A missing `Origin` (non-browser clients) passes. The scheme is not compared, so TLS terminated in front of the core needs no extra setup. The widget is served from the same origin, so it passes.
+
 ## Core routes
 
 All of them return `401` `{"error": "unauthenticated"}` for anonymous users, except the two static ones.
@@ -88,4 +93,4 @@ All of them return `401` `{"error": "unauthenticated"}` for anonymous users, exc
 | `GET /fitit/features` | "My features": the user's subscriptions and own hooks in run order, with `source` `subscribed` or `own` ([marketplace spec](marketplace.md#shapes)) |
 | `/fitit/marketplace/...` | Listing, detail, publish, unpublish, subscribe, toggle, unsubscribe, accept update, fork, report ([marketplace spec](marketplace.md#http-routes)) |
 | `WS /fitit/ws?conversation=<id>` | The agent session for one conversation ([agent spec](agent.md#websocket-protocol-ws-fititws)). Anonymous: closed with `4401`. Parameter absent: conversation `default`. Present but not matching `^[A-Za-z0-9_-]{1,64}$`: closed with `4400`. |
-| `POST /fitit/transcribe` | Body is one audio clip (at most 10 MB) with an audio `content-type`. Optional query `language` is a BCP 47 tag; the core keeps the two-letter primary subtag. `200` `{"text": str}`. `400` `{"error": "empty_audio"}` when the body is empty. `413` `{"error": "audio_too_large"}` over 10 MB. `503` `{"error": "transcription_unavailable"}` when `OPENAI_API_KEY` is unset. `502` `{"error": "transcription_failed"}` when OpenAI fails. The key never leaves the core. |
+| `POST /fitit/transcribe` | Body is one audio clip (at most 10 MB) with an audio `content-type`. Optional query `language` is a BCP 47 tag; the core keeps the two-letter primary subtag. `200` `{"text": str}`. `400` `{"error": "empty_audio"}` when the body is empty. `413` `{"error": "audio_too_large"}` over 10 MB, by `Content-Length` before reading or while streaming the body. `429` `{"error": "rate_limited"}` when the user is over `FITIT_AGENT_MESSAGES_PER_HOUR` (each clip counts against the agent's budget). `503` `{"error": "transcription_unavailable"}` when `OPENAI_API_KEY` is unset. `502` `{"error": "transcription_failed"}` when OpenAI fails. The key never leaves the core. |
