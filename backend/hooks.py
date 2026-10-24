@@ -60,9 +60,10 @@ class _Api:
 
 
 class Ctx:
-    def __init__(self, user: str, api):
+    def __init__(self, user: str, api, request: dict | None = None):
         self.user = user
         self.api = _Api(api)  # only `get` is reachable from a hook
+        self.request = request or {}  # method, path, query, form of the proxied request; {} in dry runs
         self.logs: list[str] = []
 
     def log(self, *values):

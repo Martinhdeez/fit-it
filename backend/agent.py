@@ -35,6 +35,11 @@ How to work:
   change.
 - write_hook validates and dry-runs the code. If it is rejected, read the reason, fix the code and call it again.
 - When the user asks to undo or go back, call undo_hook with the hook's name.
+- Prefer acting with sensible defaults over asking. Look names up in the data (get_endpoint, ctx.api.get) instead of
+  asking the user for them.
+- When the app is ERPNext and the user talks about the overview, dashboard, a card or a chart, change the FITIT
+  Overview routes (number cards, dashboard charts, getdoc) so the change is visible there; a "new card" reuses an
+  existing card. ctx.request tells which card or chart a response belongs to.
 - Reply in the language of the user's latest message, in at most three sentences.
 
 Marketplace. Other users of the app publish their hooks as features (named @<id>) that this user can subscribe to.
@@ -219,7 +224,7 @@ def list_endpoints(ctx: RunContext[Deps]) -> str:
     else:
         spec = ctx.deps.api.get("/openapi.json")
     return "\n".join(
-        f"{method.upper()} {path}: {op.get('summary', '')}"
+        f"{method.upper()} {path}: {op.get('summary', '')}" + (f" ({op['description']})" if op.get("description") else "")
         for path, ops in spec.get("paths", {}).items()
         for method, op in ops.items()
         if isinstance(op, dict))

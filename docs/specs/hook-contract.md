@@ -46,6 +46,7 @@ def run(data, ctx):
 |---|---|
 | `ctx.user` | The current user id (`str`) |
 | `ctx.api.get(path)` | `GET` on the client app as the current user (same cookies). `path` must start with `/`. Returns the parsed JSON body. Raises on a non-2xx status. No other HTTP method exists. |
+| `ctx.request` | The proxied request as a dict: `method`, `path`, `query` (dict), `form` (form or JSON body parsed; form values that are JSON are decoded). `{}` in dry runs and on virtual endpoints, so read it with `.get` |
 | `ctx.log(*values)` | Appends one log line (values joined by a space) to this run's log, which is traced |
 
 ## Guard (checked when saving, when restoring, and when loading)
