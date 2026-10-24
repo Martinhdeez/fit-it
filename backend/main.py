@@ -13,6 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 import db
 import hooks
+import marketplace
 import trace
 
 
@@ -59,16 +60,24 @@ def resolve_user(cookie: str) -> str | None:
     return user if isinstance(user, str) else None
 
 
-def route_of(user: str, name: str):
-    return next((h["route"] for h in hooks.list_hooks(user) if h["name"] == name), None)
+def route_of(name: str, entries: list[dict]):
+    """The route of the code named `name` among features and hooks, or None if it fails the guard."""
+    code = next((h["code"] for h in entries if h["name"] == name), "")
+    try:
+        return " ".join(hooks.check_code(code))
+    except ValueError:
+        return None
 
 
 def apply_hooks(user, cookie, method, path, data):
-    """Returns (response, names): the hooked JSON, a 502 on HookError, or None if no hook matched."""
+    """Runs the user's subscribed features, then their own hooks (ADR 0023).
+    Returns (response, names): the hooked JSON, a 502 on HookError, or None if nothing matched."""
+    features = marketplace.active(user)
     try:
-        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie)))
+        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie)), features)
     except hooks.HookError as e:
-        trace.emit("hook.failed", user=user, hook=e.hook, route=route_of(user, e.hook), error=str(e))
+        route = route_of(e.hook, features if e.hook.startswith("@") else hooks.list_hooks(user))
+        trace.emit("hook.failed", user=user, hook=e.hook, route=route, error=str(e))
         return JSONResponse({"error": "hook_failed", "hook": e.hook, "detail": str(e)}, 502), []
     for h in applied:
         trace.emit("hook.applied", user=user, hook=h["name"], route=h["route"], ms=h["ms"], logs=h["logs"])
@@ -157,6 +166,115 @@ def clear_history(request: Request):
     from agent import clear_history
     clear_history(user)
     return Response(status_code=204)
+
+
+@app.get("/fitit/features")
+def my_features(request: Request):
+    user = resolve_user(request.headers.get("cookie", ""))
+    return marketplace.my_features(user) if user else unauthenticated()
+
+
+def market(request: Request, call, id: str | None = None):
+    """Marketplace routes: 401 if anonymous, 404 for a bad `id`, then `call(user[, feature_id])`, with
+    `marketplace.Error` mapped to its status and a `None` result to 204 (marketplace spec, "HTTP routes")."""
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    args = [user]
+    if id is not None:
+        if not (id.isascii() and id.isdigit() and 0 < int(id) < 2**63):
+            return not_found()
+        args.append(int(id))
+    try:
+        result = call(*args)
+    except marketplace.Error as e:
+        return not_found() if e.error == "not_found" else JSONResponse({"error": e.error, "detail": str(e)}, e.status)
+    return Response(status_code=204) if result is None else result
+
+
+async def json_body(request: Request):
+    """The request's JSON object (`{}` for an empty body), or None when it is not a JSON object."""
+    raw = await request.body()
+    try:
+        body = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def fields(body, *names, optional=()):
+    if body is None:
+        raise marketplace.Error("invalid", "the body must be a JSON object")
+    for name in names + optional:
+        if (name in names or name in body) and not isinstance(body.get(name), str):
+            raise marketplace.Error("invalid", f"'{name}' must be a string")
+    return [body.get(name) for name in names + optional]
+
+
+def api_of(request: Request) -> Api:
+    return Api(request.headers.get("cookie", ""))
+
+
+@app.get("/fitit/marketplace/features")
+def search_features(request: Request, q: str = "", sort: str = "subscribers"):
+    return market(request, lambda user: marketplace.search(user, q, sort))
+
+
+@app.post("/fitit/marketplace/features")
+async def publish_feature(request: Request):
+    body = await json_body(request)
+
+    def publish(user):
+        result = marketplace.publish(user, *fields(body, "hook", "title", "description"))
+        return JSONResponse(result, 201 if result["created"] else 200)
+    return await run_in_threadpool(market, request, publish)
+
+
+@app.get("/fitit/marketplace/features/{id}")
+def get_feature(id: str, request: Request):
+    return market(request, marketplace.get_feature, id)
+
+
+@app.delete("/fitit/marketplace/features/{id}")
+def unpublish_feature(id: str, request: Request):
+    return market(request, marketplace.unpublish, id)
+
+
+@app.post("/fitit/marketplace/features/{id}/subscribe")
+def subscribe_feature(id: str, request: Request):
+    return market(request, lambda user, fid: marketplace.subscribe(user, fid, api_of(request)), id)
+
+
+@app.post("/fitit/marketplace/features/{id}/toggle")
+def toggle_feature(id: str, request: Request):
+    return market(request, lambda user, fid: {"feature_id": fid, "enabled": marketplace.toggle(user, fid)}, id)
+
+
+@app.post("/fitit/marketplace/features/{id}/unsubscribe")
+def unsubscribe_feature(id: str, request: Request):
+    return market(request, marketplace.unsubscribe, id)
+
+
+@app.post("/fitit/marketplace/features/{id}/accept-update")
+def accept_update(id: str, request: Request):
+    return market(request, lambda user, fid: marketplace.accept_update(user, fid, api_of(request)), id)
+
+
+@app.post("/fitit/marketplace/features/{id}/fork")
+async def fork_feature(id: str, request: Request):
+    body = await json_body(request)
+
+    def fork(user, fid):
+        (name,) = fields(body, optional=("name",))
+        return JSONResponse(marketplace.fork(user, fid, api_of(request), name), 201)
+    return await run_in_threadpool(market, request, fork, id)
+
+
+@app.post("/fitit/marketplace/features/{id}/report")
+async def report_feature(id: str, request: Request):
+    body = await json_body(request)
+    return await run_in_threadpool(
+        market, request, lambda user, fid: marketplace.report(user, fid, *fields(body, "reason")), id)
 
 
 @app.websocket("/fitit/ws")

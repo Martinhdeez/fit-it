@@ -268,3 +268,32 @@ def test_dry_run(database):
             hooks.dry_run("u1", hook("GET /a", body), None, api)
         assert e.value.hook is None and str(e.value)
     assert sql(database, "SELECT * FROM hooks") == sql(database, "SELECT * FROM hook_versions") == []
+
+
+def test_features_run_first_in_list_order():
+    hooks.save_hook("u1", "own", hook("GET /a", "return data + ['own']"))
+    features = [{"name": "@5", "code": hook("GET /a", "ctx.log(ctx.user)\n    return data + ['f5']")},
+                {"name": "@9", "code": hook("GET /b", "return data + ['f9']")},
+                {"name": "@2", "code": hook("GET /a", "return data + ['f2']")}]
+    ctx = hooks.Ctx("u1", Api())
+    result, applied = hooks.run_hooks("u1", "GET", "/a", [], ctx, features)
+    assert result == ["f5", "f2", "own"] and [a["name"] for a in applied] == ["@5", "@2", "own"]
+    assert applied[0]["route"] == "GET /a" and applied[0]["logs"] == ["u1"]
+    assert hooks.run_hooks("u1", "GET", "/a", [], ctx)[0] == ["own"]  # no features: v2 behaviour
+
+
+@pytest.mark.parametrize("code", ["import os\n" + hook("GET /a"), hook("GET /a", "return 1 / 0")])
+def test_failing_feature_fails_closed_with_its_name(code):
+    with pytest.raises(hooks.HookError) as e:
+        hooks.run_hooks("u1", "GET", "/a", [], hooks.Ctx("u1", Api()), [{"name": "@3", "code": code}])
+    assert e.value.hook == "@3"
+
+
+def test_delete_hook_unpublishes_its_feature(database):
+    import marketplace
+    hooks.save_hook("u1", "a", hook("GET /x/a"))
+    hooks.save_hook("u1", "b", hook("GET /x/b"))
+    a = marketplace.publish("u1", "a", "A", "a")["id"]
+    b = marketplace.publish("u1", "b", "B", "b")["id"]
+    hooks.delete_hook("u1", "a")
+    assert sql(database, "SELECT id, published FROM features ORDER BY id") == [(a, False), (b, True)]

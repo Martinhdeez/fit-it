@@ -215,3 +215,41 @@ def test_ws_anonymous_is_accepted_then_closed_with_4401():
         with pytest.raises(WebSocketDisconnect) as e:
             ws.receive_text()
     assert e.value.code == 4401
+
+
+def test_subscribed_features_run_first_as_the_subscriber(env, database):
+    import marketplace
+    mark = 'data[0]["marks"] = data[0].get("marks", []) + ["{}"]\n    return data'
+    write("gerente", "who", hook("GET /x/who", 'return [ctx.user, ctx.api.get("/api/me")["id"]]'))
+    write("gerente", "a", hook("GET /api/invoices", mark.format("A")))
+    write("gerente", "b", hook("GET /api/invoices", mark.format("B")))
+    who, a, b = (marketplace.publish("gerente", n, n, n)["id"] for n in ("who", "a", "b"))
+    for fid in (who, b, a):
+        marketplace.subscribe("recepcion", fid, main.Api("session=recepcion"))
+    write("recepcion", "own", hook("GET /api/invoices", mark.format("own")))
+    c = client("recepcion")
+    assert c.get("/x/who").json() == ["recepcion", "recepcion"]
+    del env[:]
+    r = c.get("/api/invoices")
+    assert r.json()[0]["marks"] == ["B", "A", "own"] and r.headers["x-fitit-hooks"] == f"@{b},@{a},own"
+    assert [(e["hook"], e["user"]) for e in env if e["kind"] == "hook.applied"] == [
+        (f"@{b}", "recepcion"), (f"@{a}", "recepcion"), ("own", "recepcion")]
+    assert env[-1]["hooks"] == [f"@{b}", f"@{a}", "own"]
+
+    marketplace.toggle("recepcion", b)
+    assert c.get("/api/invoices").headers["x-fitit-hooks"] == f"@{a},own"
+    with psycopg.connect(database) as conn:
+        conn.execute("UPDATE feature_versions SET code = %s WHERE feature_id = %s",
+                     (hook("GET /api/invoices", "return 1 / 0"), a))
+    del env[:]
+    r = c.get("/api/invoices")
+    assert r.status_code == 502 and r.json()["hook"] == f"@{a}" and "marks" not in r.text
+    assert [e for e in env if e["kind"] == "hook.failed"] == [{
+        "kind": "hook.failed", "user": "recepcion", "hook": f"@{a}", "route": "GET /api/invoices",
+        "error": "ZeroDivisionError: division by zero"}]
+    with psycopg.connect(database) as conn:
+        conn.execute("UPDATE feature_versions SET code = 'import os' WHERE feature_id = %s", (a,))
+    r = c.get("/api/invoices")
+    assert r.status_code == 502 and r.json()["hook"] == f"@{a}"
+    assert [e["route"] for e in env if e["kind"] == "hook.failed"][-1] is None
+    assert client("gerente").get("/x/who").json() == ["gerente", "gerente"]
