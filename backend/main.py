@@ -59,13 +59,16 @@ class Api:
 
 
 def resolve_user(cookie: str) -> str | None:
-    # ponytail: one /api/me call per request; cache by session cookie if latency matters (ADR 0006)
+    # ponytail: one user call per request; cache by session cookie if latency matters (ADR 0006)
+    path = os.environ.get("FITIT_USER_PATH", "/api/me")
+    field = os.environ.get("FITIT_USER_FIELD", "id")
+    anonymous = os.environ.get("FITIT_ANONYMOUS_USERS", "").split(",")  # ADR 0027
     try:
-        r = httpx.get(base_url() + "/api/me", headers={"cookie": cookie})
-        user = r.json()["id"] if r.status_code == 200 else None
+        r = httpx.get(base_url() + path, headers={"cookie": cookie})
+        user = r.json()[field] if r.status_code == 200 else None
     except Exception:
         return None
-    return user if isinstance(user, str) else None
+    return user if isinstance(user, str) and user not in anonymous else None
 
 
 def route_of(name: str, entries: list[dict]):
