@@ -12,6 +12,8 @@ The core could front several apps, each with its own catalog and workspaces. The
 
 One core instance fronts one app, set by the `BASE_URL` environment variable. Hooks live in `WORKSPACES/<user_id>/`.
 
+Update (2026-10-24): storage moved to Postgres, see [ADR 0017](0017-postgres-as-core-storage.md).
+
 ## Consequences
 
 - Simpler configuration, paths and tests.
