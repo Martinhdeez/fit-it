@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS messages_user_id_id ON messages (user_id, id);
 
+-- Conversations (ADR 0024): added after CREATE TABLE so a v2 database gains it; existing rows belong to 'default'.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS conversation_id text NOT NULL DEFAULT 'default';
+CREATE INDEX IF NOT EXISTS messages_user_conversation_id ON messages (user_id, conversation_id, id);
+
 -- Marketplace (ADR 0022, docs/specs/marketplace.md). Rows of features and feature_versions are never deleted.
 CREATE TABLE IF NOT EXISTS features (
     id          bigserial   PRIMARY KEY,

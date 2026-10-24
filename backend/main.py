@@ -1,6 +1,7 @@
 """Fit-it core: reverse proxy, per-user hooks, widget injection. Spec: docs/specs/proxy.md."""
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -158,14 +159,30 @@ def undo_hook(name: str, request: Request):
     return {"name": name, "version": version, "diff": diff}
 
 
+def valid_conversation(id: str) -> bool:
+    return re.fullmatch(r"[A-Za-z0-9_-]{1,64}", id) is not None
+
+
 @app.delete("/fitit/history")
 def clear_history(request: Request):
     user = resolve_user(request.headers.get("cookie", ""))
     if not user:
         return unauthenticated()
+    conversation = request.query_params.get("conversation")
+    if conversation is not None and not valid_conversation(conversation):
+        return JSONResponse({"error": "invalid", "detail": "conversation must match [A-Za-z0-9_-]{1,64}"}, 422)
     from agent import clear_history
-    clear_history(user)
+    clear_history(user, conversation)
     return Response(status_code=204)
+
+
+@app.get("/fitit/conversations")
+def list_conversations(request: Request):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    from agent import list_conversations
+    return list_conversations(user)
 
 
 @app.get("/fitit/features")
@@ -285,8 +302,13 @@ async def ws(websocket: WebSocket):
         await websocket.accept()
         await websocket.close(code=4401)
         return
+    conversation = websocket.query_params.get("conversation", "default")
+    if not valid_conversation(conversation):
+        await websocket.accept()
+        await websocket.close(code=4400)
+        return
     from agent import handle_ws  # lazy: the agent module is optional for the proxy
-    await handle_ws(websocket, user, Api(cookie))
+    await handle_ws(websocket, user, Api(cookie), conversation)
 
 
 @app.api_route("/x/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])

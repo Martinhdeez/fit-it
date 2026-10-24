@@ -82,6 +82,7 @@ class Deps:
 
 # ponytail: in memory, per process; Postgres-backed if the core scales out (plan 02, Next)
 _sent: dict[str, deque] = defaultdict(deque)
+_busy: set[tuple[str, str]] = set()  # (user, conversation) with a message running; same ceiling (ADR 0024)
 
 
 def reset_rate_limits() -> None:
@@ -135,27 +136,47 @@ def model_name() -> str:
     return os.environ.get("FITIT_MODEL", "anthropic:claude-opus-5-5")
 
 
-def load_history(user: str) -> list:
-    """The user's last HISTORY_TURNS turns, oldest first, as one message list."""
+def load_history(user: str, conversation: str = "default") -> list:
+    """The conversation's last HISTORY_TURNS turns, oldest first, as one message list."""
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT turn FROM (SELECT id, turn FROM messages WHERE user_id = %s ORDER BY id DESC LIMIT %s) t"
-            " ORDER BY id", (user, HISTORY_TURNS)).fetchall()
+            "SELECT turn FROM (SELECT id, turn FROM messages WHERE user_id = %s AND conversation_id = %s"
+            " ORDER BY id DESC LIMIT %s) t ORDER BY id", (user, conversation, HISTORY_TURNS)).fetchall()
     return ModelMessagesTypeAdapter.validate_python([m for (turn,) in rows for m in turn])
 
 
-def save_turn(user: str, messages: list) -> None:
+def save_turn(user: str, messages: list, conversation: str = "default") -> None:
     turn = ModelMessagesTypeAdapter.dump_python(messages, mode="json")
     for m in turn:
         if m.get("kind") == "request":
             m["instructions"] = None  # the prompt is never stored (ADR 0019)
     with db.connect() as conn:
-        conn.execute("INSERT INTO messages (user_id, turn) VALUES (%s, %s)", (user, Jsonb(turn)))
+        conn.execute("INSERT INTO messages (user_id, turn, conversation_id) VALUES (%s, %s, %s)",
+                     (user, Jsonb(turn), conversation))
 
 
-def clear_history(user: str) -> None:
+def clear_history(user: str, conversation: str | None = None) -> None:
     with db.connect() as conn:
-        conn.execute("DELETE FROM messages WHERE user_id = %s", (user,))
+        if conversation is None:
+            conn.execute("DELETE FROM messages WHERE user_id = %s", (user,))
+        else:
+            conn.execute("DELETE FROM messages WHERE user_id = %s AND conversation_id = %s", (user, conversation))
+
+
+def list_conversations(user: str) -> list[dict]:
+    """The user's conversations with a stored turn, latest activity first (agent spec, "Conversations")."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT c.conversation_id, c.last, c.n, f.turn FROM (SELECT conversation_id, max(created_at) last,"
+            " count(*) n, min(id) first FROM messages WHERE user_id = %s GROUP BY conversation_id) c"
+            " JOIN messages f ON f.id = c.first ORDER BY c.last DESC, c.conversation_id", (user,)).fetchall()
+    result = []
+    for cid, last, n, turn in rows:
+        title = next((p.get("content") for m in turn for p in m.get("parts", [])
+                      if p.get("part_kind") == "user-prompt"), "")
+        result.append({"id": cid, "title": title[:60] if isinstance(title, str) else "",
+                       "last_activity": last.isoformat(), "turns": n})
+    return result
 
 
 @agent.tool
@@ -341,7 +362,7 @@ def fork_feature(ctx: RunContext[Deps], feature_id: int, name: str) -> str:
     return f"forked @{feature_id} into {h['name']}"
 
 
-async def handle_ws(websocket, user: str, api) -> None:
+async def handle_ws(websocket, user: str, api, conversation: str = "default") -> None:
     if websocket.client_state == WebSocketState.CONNECTING:
         await websocket.accept()
     while True:
@@ -354,7 +375,12 @@ async def handle_ws(websocket, user: str, api) -> None:
             await websocket.send_json({"type": "error", "message": 'expected {"type": "message", "text": "..."}'})
             await websocket.send_json({"type": "done"})
             continue
-        trace.emit("agent.message", user=user, text=text)
+        trace.emit("agent.message", user=user, text=text, conversation=conversation)
+        key = (user, conversation)
+        if key in _busy:
+            await websocket.send_json({"type": "error", "message": "conversation busy: a message is still running"})
+            await websocket.send_json({"type": "done"})
+            continue
         if rate_limited(user):
             limit = os.environ.get("FITIT_AGENT_MESSAGES_PER_HOUR", "60")
             await websocket.send_json({"type": "error", "message": f"rate limit: at most {limit} messages per hour"})
@@ -366,8 +392,9 @@ async def handle_ws(websocket, user: str, api) -> None:
             while deps.events:
                 await websocket.send_json(deps.events.pop(0))
 
+        _busy.add(key)  # no await since the check above, so check-and-add is atomic on the event loop
         try:
-            history = load_history(user)  # every message: nothing cached per connection (ADR 0019)
+            history = load_history(user, conversation)  # every message: nothing cached (ADR 0019)
             async with agent.iter(text, deps=deps, message_history=history, model=model_name()) as run:
                 async for node in run:
                     if not isinstance(node, CallToolsNode):
@@ -376,14 +403,14 @@ async def handle_ws(websocket, user: str, api) -> None:
                         async for event in events:
                             if isinstance(event, FunctionToolCallEvent):
                                 name, args = event.part.tool_name, event.part.args_as_dict()
-                                trace.emit("agent.tool", user=user, tool=name, input=args)
+                                trace.emit("agent.tool", user=user, tool=name, input=args, conversation=conversation)
                                 await websocket.send_json({"type": "tool", "name": name, "input": args})
                             elif isinstance(event, FunctionToolResultEvent):
                                 await flush()
             await flush()
-            save_turn(user, run.result.new_messages())
+            save_turn(user, run.result.new_messages(), conversation)
             usage = run.result.usage
-            trace.emit("agent.answer", user=user, text=run.result.output,
+            trace.emit("agent.answer", user=user, text=run.result.output, conversation=conversation,
                        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
             await websocket.send_json({"type": "text", "text": run.result.output})
         except Exception as e:
@@ -392,4 +419,6 @@ async def handle_ws(websocket, user: str, api) -> None:
             if message.startswith("Unknown model"):
                 message += ". Set FITIT_MODEL to a Pydantic AI 'provider:model' string."
             await websocket.send_json({"type": "error", "message": message})
+        finally:
+            _busy.discard(key)
         await websocket.send_json({"type": "done"})

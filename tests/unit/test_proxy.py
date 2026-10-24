@@ -199,14 +199,25 @@ def test_ws_rejects_anonymous_and_delegates(monkeypatch):
         ws.receive_text()
     assert e.value.code == 4401
 
-    async def handle_ws(websocket, user, api):
+    async def handle_ws(websocket, user, api, conversation):
         await websocket.accept()
-        await websocket.send_json({"user": user, "me": api.get("/api/me")["id"]})
+        await websocket.send_json({"user": user, "me": api.get("/api/me")["id"], "conversation": conversation})
         await websocket.close()
 
     monkeypatch.setitem(sys.modules, "agent", types.SimpleNamespace(handle_ws=handle_ws))
-    with client("gerente").websocket_connect("/fitit/ws") as ws:
-        assert ws.receive_json() == {"user": "gerente", "me": "gerente"}
+    c = client("gerente")
+    with c.websocket_connect("/fitit/ws") as ws:
+        assert ws.receive_json() == {"user": "gerente", "me": "gerente", "conversation": "default"}
+    ok = "a-Z_9" * 12 + "abcd"  # 64 characters
+    with c.websocket_connect(f"/fitit/ws?conversation={ok}") as ws:
+        assert ws.receive_json()["conversation"] == ok
+    for bad in ("a%20b", "%C3%BC", "", ok + "x"):
+        with pytest.raises(WebSocketDisconnect) as e, c.websocket_connect(f"/fitit/ws?conversation={bad}") as ws:
+            ws.receive_text()
+        assert e.value.code == 4400, bad
+    with pytest.raises(WebSocketDisconnect) as e, client().websocket_connect("/fitit/ws?conversation=a%20b") as ws:
+        ws.receive_text()
+    assert e.value.code == 4401
 
 
 def test_ws_anonymous_is_accepted_then_closed_with_4401():

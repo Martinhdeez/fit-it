@@ -96,6 +96,7 @@ EXPECTED = {
         "user_id": ("text", False),
         "turn": ("jsonb", False),
         "created_at": ("timestamp with time zone", False),
+        "conversation_id": ("text", False),
     },
 }
 
