@@ -6,10 +6,16 @@ writes a directory. flush is true only when the records accepted before that
 call are on disk.
 """
 
+import collections
+try:
+    import fcntl
+except ImportError:  # the core image is Linux; a Windows host has no flock
+    fcntl = None
 import hashlib
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -26,7 +32,6 @@ from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
 from opentelemetry.semconv.attributes.http_attributes import HTTP_REQUEST_METHOD, HTTP_RESPONSE_STATUS_CODE
 from opentelemetry.semconv.attributes.service_attributes import SERVICE_NAME
 from opentelemetry.semconv.attributes.url_attributes import URL_PATH, URL_QUERY
-from opentelemetry.semconv._incubating.attributes.user_attributes import USER_ID
 from opentelemetry.trace import ProxyTracerProvider, SpanKind, Status, StatusCode, format_span_id, format_trace_id
 
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
@@ -40,14 +45,15 @@ _closed = False
 _inflight: list[dict[str, Any]] = []
 _next_seq: dict[str, int] = {}
 _bound: set[str] = set()
-_lock_paths: list[Path] = []
+_lock_fds: list[int] = []
+# _hold pauses the writer so tests can fill the queue. Not used in production.
 
 _accepted = 0
 _persisted = 0
 _failed = 0
 _dropped = 0
 _exporter_failed = 0
-_messages: list[str] = []
+_messages: collections.deque[str] = collections.deque(maxlen=100)
 _journal_problems: list[str] = []
 _provider_ready = False
 _otlp_added = False
@@ -72,6 +78,9 @@ class _SpanView:
         raw = dict(self._span.attributes or {})
         if URL_QUERY in raw:
             raw[URL_QUERY] = "REDACTED"
+        path = raw.get(URL_PATH)
+        if isinstance(path, str):
+            raw[URL_PATH] = _template_path(path)
         return raw
 
     @property
@@ -126,17 +135,21 @@ def emit(kind: str, **fields) -> None:
             if _closed:
                 _drop("sink closed")
                 return
-            _accepted += 1
             _inflight.append(ticket)
         try:
             _queue.put_nowait(item)
             queued = True
         except queue.Full:
-            _drop("audit queue full")
+            with _cond:
+                global _dropped
+                _dropped += 1
+            _note("audit queue full")
         finally:
             if not queued:
                 _discard_ticket(ticket)
                 return
+        with _cond:
+            _accepted += 1
         _ensure_worker()
     except Exception as exc:
         _note(f"emit failed: {type(exc).__name__}")
@@ -144,30 +157,34 @@ def emit(kind: str, **fields) -> None:
 
 def flush(timeout_ms: int = 5000) -> bool:
     """True only if every record accepted before this call reached the journal."""
+    return _wait_journal(timeout_ms)
+
+
+def shutdown(timeout_ms: int = 5000) -> bool:
+    """Stop intake, finish accepted records, then flush the exporter with the time left."""
+    global _closed
+    deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+    with _cond:
+        _closed = True
+    remaining = max(0, int((deadline - time.monotonic()) * 1000))
+    ok = _wait_journal(remaining)
+    left = max(0, int((deadline - time.monotonic()) * 1000))
+    _flush_exporter(left)
+    return ok
+
+
+def _wait_journal(timeout_ms: int) -> bool:
     deadline = time.monotonic() + max(timeout_ms, 0) / 1000
     with _cond:
         waiting = [ticket for ticket in _inflight]
     while True:
         with _cond:
             if all(ticket["done"] for ticket in waiting):
-                journal_ok = all(ticket["ok"] for ticket in waiting)
-                break
+                return all(ticket["ok"] for ticket in waiting)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
             _cond.wait(remaining)
-    _flush_exporter(min(max(timeout_ms, 1), 1000))
-    return journal_ok
-
-
-def shutdown(timeout_ms: int = 5000) -> bool:
-    """Stop intake, finish accepted records, and flush the exporter once."""
-    global _closed
-    with _cond:
-        _closed = True
-    ok = flush(timeout_ms)
-    _flush_exporter(max(timeout_ms, 1))
-    return ok
 
 
 def startup() -> None:
@@ -179,42 +196,48 @@ def startup() -> None:
 
 
 def read_events(*, after: int = 0, limit: int = 100) -> list[dict[str, Any]]:
-    """Committed records with seq > after, in cursor order, at most limit."""
+    """Committed records with seq > after, in cursor order. limit is capped at 1000."""
     path = _trace_dir() / "events.jsonl"
+    limit = max(0, min(int(limit), 1000))
     problems: list[str] = []
     chosen: list[dict[str, Any]] = []
     try:
-        raw = path.read_bytes()
+        handle = path.open("rb")
     except FileNotFoundError:
         _set_problems([])
         return []
     except OSError as exc:
         _set_problems([f"read: {type(exc).__name__}"])
         return []
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        problems.append("invalid utf-8")
-        text = raw.decode("utf-8", errors="replace")
-    if text and not text.endswith("\n"):
-        problems.append("incomplete tail")
-    for number, line in enumerate(text.splitlines(), 1):
-        if len(chosen) >= max(limit, 0):
-            break
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            problems.append(f"line {number}: invalid json")
-            continue
-        if not isinstance(record, dict) or not isinstance(record.get("seq"), int):
-            problems.append(f"line {number}: missing seq")
-            continue
-        if record["seq"] > after:
-            chosen.append(json.loads(json.dumps(record)))
+    with handle:
+        for number, raw_line in enumerate(handle, 1):
+            if len(chosen) >= limit:
+                break
+            line = raw_line[:-1] if raw_line.endswith(b"\n") else raw_line
+            if not line.strip():
+                if not raw_line.endswith(b"\n") and line:
+                    problems.append("incomplete tail")
+                continue
+            record, problem = _parse_record(line)
+            if problem:
+                problems.append(f"line {number}: {problem}")
+                if not raw_line.endswith(b"\n"):
+                    problems.append("incomplete tail")
+                continue
+            if record["seq"] > after:
+                chosen.append(record)
     _set_problems(problems)
     return chosen
+
+
+def _parse_record(line: bytes) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        record = json.loads(line)
+    except ValueError:
+        return None, "invalid"
+    if not isinstance(record, dict) or not isinstance(record.get("seq"), int) or isinstance(record.get("seq"), bool):
+        return None, "missing seq"
+    return record, None
 
 
 def diagnostics() -> dict[str, Any]:
@@ -382,53 +405,32 @@ def _bind(directory: Path) -> None:
 
 
 def _acquire(directory: Path) -> None:
-    lock = directory / "writer.lock"
-    for _attempt in range(2):
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                pid = int(lock.read_text(encoding="utf-8").strip())
-            except (OSError, ValueError):
-                pid = -1
-            if pid != os.getpid() and _alive(pid):
-                raise RuntimeError("another trace writer holds this directory")
-            try:
-                lock.unlink()
-            except OSError:
-                pass
-            continue
-        os.write(fd, str(os.getpid()).encode())
-        os.close(fd)
-        _lock_paths.append(lock)
+    if fcntl is None:
         return
-    raise RuntimeError("trace writer lock")
-
-
-def _alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
+    lock = directory / "writer.lock"
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR)
     try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise RuntimeError("another trace writer holds this directory")
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode())
+    _lock_fds.append(fd)
 
 
 def _recover(directory: Path) -> None:
     path = directory / "events.jsonl"
-    if not path.exists():
+    if not path.exists() or path.stat().st_size == 0:
         _next_seq[str(directory)] = 1
         return
     raw = path.read_bytes()
     if raw and not raw.endswith(b"\n"):
         head, sep, tail = raw.rpartition(b"\n")
-        fragment = tail
-        valid = False
         try:
-            json.loads(fragment.decode("utf-8"))
+            json.loads(tail)
             valid = True
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except ValueError:
             valid = False
         if valid:
             with path.open("ab") as handle:
@@ -437,29 +439,25 @@ def _recover(directory: Path) -> None:
                 os.fsync(handle.fileno())
         else:
             with (directory / "events.corrupt").open("ab") as handle:
-                handle.write(fragment)
+                handle.write(tail)
                 handle.flush()
                 os.fsync(handle.fileno())
-            with path.open("wb") as handle:
-                if sep:
-                    handle.write(head + b"\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            _note("isolated incomplete tail")
+            offset = len(head) + len(sep)
+            os.truncate(path, offset)
+            _note(f"isolated incomplete tail at byte {offset}")
+            raw = path.read_bytes()
     highest = 0
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        text = ""
-    for line in text.splitlines():
+    saw = False
+    for line in raw.split(b"\n"):
         if not line.strip():
             continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
+        record, _problem = _parse_record(line)
+        if record is None:
             continue
-        if isinstance(record, dict) and isinstance(record.get("seq"), int):
-            highest = max(highest, record["seq"])
+        highest = max(highest, record["seq"])
+        saw = True
+    if not saw:
+        raise RuntimeError("journal has no readable cursor")
     _next_seq[str(directory)] = highest + 1
 
 
@@ -473,7 +471,8 @@ def _append(path: Path, lines: list[str]) -> None:
 
 
 def _write_stdout(line: str) -> None:
-    print(line, flush=True)
+    record = json.loads(line)
+    print(f"{record.get('seq')} {record.get('kind')} {record.get('user')}", flush=True)
 
 
 def _export_span(item: dict[str, Any]) -> None:
@@ -496,15 +495,18 @@ def _export_span(item: dict[str, Any]) -> None:
 def _fill_span(span, record: dict[str, Any]) -> None:
     user = record.get("user")
     if isinstance(user, str) and user:
-        span.set_attribute(USER_ID, user)
+        span.set_attribute("user.id", user)
     method = record.get("method")
     if isinstance(method, str) and method in _METHODS:
         span.set_attribute(HTTP_REQUEST_METHOD, method)
     path = record.get("path")
-    if isinstance(path, str) and path.startswith("/") and len(path) <= 200:
-        span.set_attribute(URL_PATH, path)
+    templated = _template_path(path) if isinstance(path, str) else None
+    if templated is not None and len(templated) <= 200:
+        span.set_attribute(URL_PATH, templated)
     template = _route_template(record.get("route"))
-    if template is not None:
+    if record.get("kind") == "request.proxied" and templated is not None:
+        span.set_attribute("http.route", templated)
+    elif template is not None:
         span.set_attribute("http.route", template)
     status = record.get("status")
     if isinstance(status, int) and not isinstance(status, bool):
@@ -524,9 +526,21 @@ def _fill_span(span, record: dict[str, Any]) -> None:
     ms = record.get("ms")
     if isinstance(ms, (int, float)) and not isinstance(ms, bool) and ms >= 0:
         span.set_attribute("fitit.duration_ms", float(ms))
+    kind = str(record.get("kind") or "")
+    feature_id = record.get("feature_id")
+    if isinstance(feature_id, int) and not isinstance(feature_id, bool) and feature_id >= 0:
+        span.set_attribute("fitit.feature.id", feature_id)
     version = record.get("version")
     if isinstance(version, int) and not isinstance(version, bool) and version >= 0:
-        span.set_attribute("fitit.hook.version", version)
+        if kind.startswith("feature."):
+            span.set_attribute("fitit.feature.version", version)
+        elif kind == "hook.restored":
+            span.set_attribute("fitit.hook.version", version)
+    if isinstance(record.get("created"), bool):
+        span.set_attribute("fitit.feature.created", record["created"])
+    hook = record.get("hook")
+    if isinstance(hook, str) and hook.startswith("@") and hook[1:].isdigit():
+        span.set_attribute("fitit.feature.id", int(hook[1:]))
     for source, target in (("input_tokens", "fitit.agent.input_tokens"), ("output_tokens", "fitit.agent.output_tokens")):
         count = record.get(source)
         if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
@@ -534,6 +548,12 @@ def _fill_span(span, record: dict[str, Any]) -> None:
     for name in _SENSITIVE:
         if name in record and record[name] is not None:
             span.set_attribute(f"fitit.{name}.sha256", _sha(record[name]))
+
+
+def _template_path(path: str) -> str:
+    if not path.startswith("/"):
+        return path
+    return re.sub(r"/\d+(?=/|$)", "/{id}", path)
 
 
 def _route_template(route: Any) -> str | None:
@@ -592,8 +612,6 @@ def _set_problems(problems: list[str]) -> None:
 
 
 def _note(message: str) -> None:
-    with _cond:
-        if len(_messages) < 100:
-            _messages.append(message)
-    if message.startswith("audit queue full") or message.startswith("journal:") or message.startswith("isolated"):
+    _messages.append(message)
+    if message.startswith(("audit queue full", "journal:", "isolated", "sink closed", "another trace writer")):
         print(f"fitit-trace {message}", file=sys.stderr, flush=True)

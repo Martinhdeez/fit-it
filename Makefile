@@ -9,7 +9,7 @@ check:
 		-e DEMO_URL=http://demo:8001 \
 		-e OTEL_EXPORTER_OTLP_ENDPOINT= -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT= -e FITIT_TRACE_DIR=/tmp/fitit-trace \
 		-e PYTHONPATH=/app:/evals \
-		-v ./tests:/tests:ro -v ./evals:/evals:ro \
+		-v ./tests:/tests:ro -v ./evals:/evals:ro -v ./Makefile:/Makefile:ro \
 		core uv run --frozen pytest -p no:cacheprovider /tests
 
 # Runs the real-model eval set (docs/specs/evals.md). Costs tokens; never part of `check`.

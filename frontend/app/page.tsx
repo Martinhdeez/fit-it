@@ -2,23 +2,40 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  acceptUpdate,
+  ApiError,
+  clearHistory,
   deleteHook,
-  listHooks,
+  errorText,
+  featureKey,
+  HookGone,
+  listConversations,
+  listFeatures,
   openSocket,
   parseEvent,
+  publishFeature,
   reloadHostPage,
   sendMessage,
   SignedOut,
   tellHost,
   toggleHook,
+  toggleSubscription,
+  UndoFailed,
+  undoHook,
+  unpublishFeature,
+  unsubscribeFeature,
   transcribe,
   UNAUTHENTICATED,
   type AgentEvent,
-  type Hook,
+  type ConversationSummary,
+  type Feature,
+  type OwnFeature,
 } from "../lib/core";
 import { canRecord, startRecording, type Recording } from "../lib/dictation";
+import { Features } from "../components/features";
+import { Marketplace } from "../components/marketplace";
 
-type Connection = "idle" | "connecting" | "open" | "lost" | "signed-out";
+type WindowConnection = "idle" | "connecting" | "open" | "lost";
 
 type Item =
   | { kind: "prompt"; text: string }
@@ -26,7 +43,45 @@ type Item =
   | { kind: "saved"; name: string; route: string; diff: string }
   | { kind: "rejected"; name: string; reason: string }
   | { kind: "answer"; text: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  | { kind: "changed" };
+
+type ChatWindow = {
+  key: string;
+  conversationId: string | null;
+  title: string;
+  items: Item[];
+  draft: string;
+  busy: boolean;
+  connection: WindowConnection;
+  clearing: boolean;
+};
+
+type WindowRuntime = {
+  socket: WebSocket | null;
+  savedThisTurn: boolean;
+};
+
+function windowKey(conversationId: string | null): string {
+  return conversationId ? `c:${conversationId}` : "default";
+}
+
+function createChat(conversationId: string | null, title = "New chat"): ChatWindow {
+  return {
+    key: windowKey(conversationId),
+    conversationId,
+    title: title.trim() || "New chat",
+    items: [],
+    draft: "",
+    busy: false,
+    connection: "idle",
+    clearing: false,
+  };
+}
+
+function chatLabel(chat: ChatWindow): string {
+  return chat.title.trim() || "New chat";
+}
 
 const SIGN_IN = "Sign in to the app first";
 
@@ -128,98 +183,194 @@ function diffLineClass(line: string): string | undefined {
 
 export default function Page() {
   const [open, setOpen] = useState(false);
-  const [connection, setConnection] = useState<Connection>("idle");
-  const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [items, setItems] = useState<Item[]>([]);
-  const [hooks, setHooks] = useState<Hook[]>([]);
-  const [hooksError, setHooksError] = useState("");
-  const [pendingHook, setPendingHook] = useState("");
-  const socketRef = useRef<WebSocket | null>(null);
-  const savedThisTurn = useRef(false);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ x: number; y: number; size: Size; last: Size } | null>(null);
-  const requestedSize = useRef<Size | null>(null);
+  const [windows, setWindows] = useState<ChatWindow[]>(() => [createChat(null)]);
+  const [activeKey, setActiveKey] = useState("default");
+  const [signedOut, setSignedOut] = useState(false);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [chatsOpen, setChatsOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | "features" | "market">(null);
+  const [features, setFeatures] = useState<Feature[]>([]);
+  const [featuresError, setFeaturesError] = useState("");
+  const [featuresLoaded, setFeaturesLoaded] = useState(false);
+  const [pendingFeature, setPendingFeature] = useState("");
   const [micSupported, setMicSupported] = useState(false);
   const [dictating, setDictating] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [dictationKey, setDictationKey] = useState<string | null>(null);
   const [micError, setMicError] = useState("");
+  const [micErrorKey, setMicErrorKey] = useState<string | null>(null);
+  const runtime = useRef(new Map<string, WindowRuntime>());
+  const windowsRef = useRef(windows);
+  const activeKeyRef = useRef(activeKey);
+  const signedOutRef = useRef(signedOut);
+  const onEventRef = useRef<(key: string, event: AgentEvent) => void>(() => {});
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const activeTabRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const chatsRootRef = useRef<HTMLDivElement>(null);
+  const featuresTriggerRef = useRef<HTMLButtonElement>(null);
+  const marketTriggerRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; y: number; size: Size; last: Size } | null>(null);
+  const requestedSize = useRef<Size | null>(null);
   const recordingRef = useRef<Recording | null>(null);
+  windowsRef.current = windows;
+  activeKeyRef.current = activeKey;
+  signedOutRef.current = signedOut;
+  const active = windows.find((chat) => chat.key === activeKey) ?? windows[0];
+
+  function patch(key: string, update: (chat: ChatWindow) => ChatWindow) {
+    setWindows((current) => current.map((chat) => (chat.key === key ? update(chat) : chat)));
+  }
+
+  function runtimeFor(key: string): WindowRuntime {
+    const found = runtime.current.get(key);
+    if (found) return found;
+    const created: WindowRuntime = { socket: null, savedThisTurn: false };
+    runtime.current.set(key, created);
+    return created;
+  }
+
+  function append(key: string, item: Item) {
+    patch(key, (chat) => ({ ...chat, items: [...chat.items, item] }));
+  }
 
   useEffect(() => {
     setMicSupported(canRecord());
+    const slots = runtime.current;
     return () => {
-      socketRef.current?.close();
+      for (const slot of slots.values()) {
+        const socket = slot.socket;
+        slot.socket = null;
+        socket?.close();
+      }
       recordingRef.current?.abort();
     };
   }, []);
 
   useEffect(() => {
-    if (open && connection === "open" && !busy) composerRef.current?.focus();
-  }, [open, connection, busy]);
+    if (open && !signedOut && active.connection === "open" && !active.busy && !(transcribing && dictationKey === active.key)) {
+      composerRef.current?.focus();
+    }
+  }, [open, signedOut, active.connection, active.busy, transcribing, dictationKey]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [items]);
+  }, [active.items, active.key]);
 
-  const add = (item: Item) => setItems((current) => [...current, item]);
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [activeKey]);
 
-  async function loadHooks() {
+  useEffect(() => {
+    if (!chatsOpen) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!chatsRootRef.current?.contains(event.target as Node)) setChatsOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [chatsOpen]);
+
+  useEffect(() => {
+    if (!sheet) return;
+    sheetRef.current?.focus();
+  }, [sheet]);
+
+  async function loadFeatures() {
     try {
-      setHooks(await listHooks());
-      setHooksError("");
+      setFeatures(await listFeatures());
+      setFeaturesError("");
     } catch (error) {
-      if (error instanceof SignedOut) setConnection("signed-out");
-      else setHooksError("Could not load your changes.");
+      if (error instanceof SignedOut) setSignedOut(true);
+      else setFeaturesError("Could not load your changes.");
+    } finally {
+      setFeaturesLoaded(true);
     }
   }
 
-  function handle(event: AgentEvent) {
+  async function refreshConversations() {
+    try {
+      const list = await listConversations();
+      setConversations(list);
+      setWindows((current) =>
+        current.map((chat) => {
+          if (!chat.conversationId) return chat;
+          const match = list.find((item) => item.id === chat.conversationId);
+          if (!match?.title || match.title === chat.title) return chat;
+          return { ...chat, title: match.title };
+        }),
+      );
+    } catch (error) {
+      if (error instanceof SignedOut) setSignedOut(true);
+      else setConversations([]);
+    }
+  }
+
+  function onEvent(key: string, event: AgentEvent) {
+    const slot = runtimeFor(key);
     switch (event.type) {
       case "tool":
-        add({ kind: "tool", name: event.name });
+        append(key, { kind: "tool", name: event.name });
         return;
       case "hook_saved":
-        savedThisTurn.current = true;
-        add({ kind: "saved", name: event.name, route: event.route, diff: event.diff });
+        slot.savedThisTurn = true;
+        append(key, { kind: "saved", name: event.name, route: event.route, diff: event.diff });
+        return;
+      case "feature_changed":
+        slot.savedThisTurn = true;
+        if ("name" in event) {
+          append(key, { kind: "saved", name: event.name, route: event.route, diff: event.diff });
+        } else {
+          append(key, { kind: "changed" });
+        }
         return;
       case "hook_rejected":
-        add({ kind: "rejected", name: event.name, reason: event.reason });
+        append(key, { kind: "rejected", name: event.name, reason: event.reason });
         return;
       case "text":
-        add({ kind: "answer", text: event.text });
+        append(key, { kind: "answer", text: event.text });
         return;
       case "error":
-        add({ kind: "error", message: event.message });
+        append(key, { kind: "error", message: event.message });
         return;
-      case "done":
-        setBusy(false);
-        if (savedThisTurn.current) {
+      case "done": {
+        const reload = slot.savedThisTurn;
+        patch(key, (chat) => ({ ...chat, busy: false }));
+        if (reload) {
           reloadHostPage();
           return;
         }
-        void loadHooks();
+        void loadFeatures();
+        void refreshConversations();
+      }
     }
   }
+  onEventRef.current = onEvent;
 
-  function connect() {
-    const current = socketRef.current;
+  function connectWindow(key: string, conversationId: string | null) {
+    if (signedOutRef.current) return;
+    const slot = runtimeFor(key);
+    const current = slot.socket;
     if (current && current.readyState <= WebSocket.OPEN) return;
 
-    const socket = openSocket();
-    socketRef.current = socket;
-    setConnection("connecting");
-    socket.addEventListener("open", () => setConnection("open"));
+    const socket = openSocket(conversationId ?? undefined);
+    slot.socket = socket;
+    patch(key, (chat) => ({ ...chat, connection: "connecting" }));
+    socket.addEventListener("open", () => {
+      if (slot.socket !== socket) return;
+      patch(key, (chat) => ({ ...chat, connection: "open" }));
+    });
     socket.addEventListener("message", (message) => {
-      if (typeof message.data !== "string") return;
+      if (slot.socket !== socket || typeof message.data !== "string") return;
       const event = parseEvent(message.data);
-      if (event) handle(event);
+      if (event) onEventRef.current(key, event);
     });
     socket.addEventListener("close", (close) => {
-      if (socketRef.current === socket) socketRef.current = null;
-      setBusy(false);
-      setConnection(close.code === UNAUTHENTICATED ? "signed-out" : "lost");
+      if (slot.socket !== socket) return;
+      slot.socket = null;
+      patch(key, (chat) => ({ ...chat, busy: false, connection: "lost" }));
+      if (close.code === UNAUTHENTICATED) setSignedOut(true);
     });
   }
 
@@ -229,14 +380,31 @@ export default function Page() {
     const size = storedSize();
     if (size) resizeTo(size, false);
     setOpen(true);
-    void loadHooks();
-    if (connection !== "signed-out") connect();
+    void loadFeatures();
+    if (signedOutRef.current) return;
+    for (const chat of windowsRef.current) connectWindow(chat.key, chat.conversationId);
+    void refreshConversations();
   }
 
   function closePanel() {
     cancelRecording();
+    setChatsOpen(false);
+    setSheet(null);
     setOpen(false);
     tellHost({ fitit: "close" });
+  }
+
+  function toggleSheet(next: "features" | "market") {
+    setChatsOpen(false);
+    setSheet((current) => (current === next ? null : next));
+  }
+
+  function closeSheet(restoreFocus = true) {
+    const which = sheet;
+    setSheet(null);
+    if (!restoreFocus || !which) return;
+    const trigger = which === "market" ? marketTriggerRef.current : featuresTriggerRef.current;
+    requestAnimationFrame(() => trigger?.focus());
   }
 
   // The host applies resize messages asynchronously, so the iframe's own size can lag behind.
@@ -282,18 +450,76 @@ export default function Page() {
     if (!recording) return;
     recordingRef.current = null;
     setDictating(false);
+    setDictationKey(null);
     recording.abort();
   }
 
+  function focusWindow(key: string, focusTab = false) {
+    if (key !== activeKeyRef.current) {
+      cancelRecording();
+      activeKeyRef.current = key;
+      setActiveKey(key);
+    }
+    setChatsOpen(false);
+    if (focusTab) requestAnimationFrame(() => tabRefs.current.get(key)?.focus());
+  }
+
+  function showConversation(conversationId: string | null, title?: string) {
+    const key = windowKey(conversationId);
+    const existing = windowsRef.current.some((chat) => chat.key === key);
+    if (!existing) {
+      const next = [...windowsRef.current, createChat(conversationId, title)];
+      windowsRef.current = next;
+      setWindows(next);
+    }
+    focusWindow(key);
+    if (!signedOutRef.current) connectWindow(key, conversationId);
+  }
+
+  function closeWindow(key: string) {
+    const current = windowsRef.current;
+    if (current.length < 2) return;
+    const index = current.findIndex((chat) => chat.key === key);
+    if (index < 0) return;
+    if (dictationKey === key) cancelRecording();
+    const slot = runtime.current.get(key);
+    const socket = slot?.socket ?? null;
+    if (slot) slot.socket = null;
+    socket?.close();
+    runtime.current.delete(key);
+    const next = current.filter((chat) => chat.key !== key);
+    windowsRef.current = next;
+    if (activeKeyRef.current === key) {
+      const neighbor = next[Math.max(0, index - 1)].key;
+      activeKeyRef.current = neighbor;
+      setActiveKey(neighbor);
+    }
+    setWindows(next);
+  }
+
+  function onTabsKey(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    const tabs = windowsRef.current;
+    const index = tabs.findIndex((chat) => chat.key === activeKeyRef.current);
+    if (index < 0) return;
+    event.preventDefault();
+    const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
+    focusWindow(tabs[next].key, true);
+  }
+
   function send() {
-    const text = draft.trim();
-    const socket = socketRef.current;
-    if (!text || busy || connection !== "open" || !socket) return;
+    const text = active.draft.trim();
+    const socket = runtime.current.get(active.key)?.socket ?? null;
+    const transcribingHere = transcribing && dictationKey === active.key;
+    if (!text || active.busy || signedOut || transcribingHere || active.connection !== "open" || !socket) return;
     cancelRecording();
-    savedThisTurn.current = false;
-    add({ kind: "prompt", text });
-    setDraft("");
-    setBusy(true);
+    runtimeFor(active.key).savedThisTurn = false;
+    patch(active.key, (chat) => ({
+      ...chat,
+      draft: "",
+      busy: true,
+      items: [...chat.items, { kind: "prompt", text }],
+    }));
     sendMessage(socket, text);
   }
 
@@ -302,49 +528,128 @@ export default function Page() {
       recordingRef.current.stop();
       return;
     }
-    const base = draft.trim() === "" ? "" : `${draft.trimEnd()} `;
+    const key = active.key;
+    const base = active.draft.trim() === "" ? "" : `${active.draft.trimEnd()} `;
     setMicError("");
+    setMicErrorKey(key);
+    setDictationKey(key);
     recordingRef.current = startRecording(
       (blob) => {
         recordingRef.current = null;
         setDictating(false);
-        if (blob.size > 0) void finishDictation(base, blob);
+        if (blob.size > 0) void finishDictation(key, base, blob);
+        else setDictationKey(null);
       },
       (message) => {
         recordingRef.current = null;
         setDictating(false);
+        setDictationKey(null);
         setMicError(message);
+        setMicErrorKey(key);
       },
     );
     setDictating(true);
   }
 
-  async function finishDictation(base: string, blob: Blob) {
+  async function finishDictation(key: string, base: string, blob: Blob) {
     setTranscribing(true);
     try {
       const text = (await transcribe(blob, navigator.language)).trim();
-      setDraft(text ? base + text : base.trimEnd());
-      if (!text) setMicError("No speech heard. Try again.");
+      patch(key, (chat) => ({ ...chat, draft: text ? base + text : base.trimEnd() }));
+      if (!text) {
+        setMicError("No speech heard. Try again.");
+        setMicErrorKey(key);
+      }
     } catch (error) {
-      if (error instanceof SignedOut) setConnection("signed-out");
+      setMicErrorKey(key);
+      if (error instanceof SignedOut) setSignedOut(true);
       else if (error instanceof Error && error.message === "transcription_unavailable") {
         setMicError("Transcription is not set up on this server.");
       } else setMicError("Transcription failed. Try again.");
     } finally {
       setTranscribing(false);
-      composerRef.current?.focus();
+      setDictationKey(null);
+      if (activeKeyRef.current === key) composerRef.current?.focus();
     }
   }
 
-  async function changeHook(name: string, action: (name: string) => Promise<void>) {
-    setPendingHook(name);
+  function dropOwn(name: string) {
+    setFeatures((current) => current.filter((feature) => feature.source !== "own" || feature.name !== name));
+  }
+
+  function dropSubscribed(id: string) {
+    setFeatures((current) => current.filter((feature) => feature.source !== "subscribed" || feature.feature_id !== id));
+  }
+
+  async function runFeature(key: string, action: () => Promise<void>, onGone?: () => void) {
+    setPendingFeature(key);
     try {
-      await action(name);
-      reloadHostPage();
+      await action();
     } catch (error) {
-      if (error instanceof SignedOut) setConnection("signed-out");
-      else setHooksError("That change did not go through. Try again.");
-      setPendingHook("");
+      if (error instanceof SignedOut) setSignedOut(true);
+      else if (error instanceof UndoFailed) setFeaturesError(error.message || "Nothing to undo.");
+      else if (error instanceof HookGone || (error instanceof ApiError && error.status === 404)) {
+        onGone?.();
+        setFeaturesError(error instanceof ApiError && error.detail ? error.detail : "That feature is gone.");
+      } else setFeaturesError(errorText(error, "That change did not go through. Try again."));
+      setPendingFeature("");
+      return;
+    }
+    reloadHostPage();
+  }
+
+  async function publish(name: string, title: string, description: string) {
+    setPendingFeature(`own:${name}`);
+    try {
+      await publishFeature(name, title, description);
+      setFeaturesError("");
+      await loadFeatures();
+    } catch (error) {
+      if (error instanceof SignedOut) {
+        setSignedOut(true);
+        throw new Error("Sign in to the app first");
+      }
+      throw new Error(errorText(error, "Could not publish this feature."));
+    } finally {
+      setPendingFeature("");
+    }
+  }
+
+  async function unpublish(feature: OwnFeature) {
+    if (!feature.feature_id) return;
+    setPendingFeature(featureKey(feature));
+    try {
+      await unpublishFeature(feature.feature_id);
+      setFeaturesError("");
+      await loadFeatures();
+    } catch (error) {
+      if (error instanceof SignedOut) setSignedOut(true);
+      else setFeaturesError(errorText(error, "Could not unpublish this feature."));
+    } finally {
+      setPendingFeature("");
+    }
+  }
+
+  async function clearChat() {
+    const key = active.key;
+    const conversationId = active.conversationId;
+    if (active.busy || active.clearing) return;
+    patch(key, (chat) => ({ ...chat, clearing: true }));
+    try {
+      await clearHistory(conversationId ?? undefined);
+      patch(key, (chat) => ({ ...chat, items: [], clearing: false }));
+      void refreshConversations();
+    } catch (error) {
+      if (error instanceof SignedOut) {
+        setSignedOut(true);
+        patch(key, (chat) => ({ ...chat, clearing: false }));
+      } else {
+        patch(key, (chat) => ({
+          ...chat,
+          clearing: false,
+          items: [...chat.items, { kind: "error", message: "Could not clear the chat. Try again." }],
+        }));
+      }
     }
   }
 
@@ -358,22 +663,28 @@ export default function Page() {
     );
   }
 
-  const signedOut = connection === "signed-out";
-  const locked = busy || transcribing || connection !== "open";
+  const transcribingHere = transcribing && dictationKey === active.key;
+  const dictatingHere = dictating && dictationKey === active.key;
+  const locked = signedOut || active.busy || transcribingHere || active.connection !== "open";
   const status = signedOut
     ? SIGN_IN
-    : connection === "connecting"
+    : active.connection === "connecting"
       ? "Connecting…"
-      : connection === "lost"
+      : active.connection === "lost"
         ? "Connection lost. Close and reopen Fit-it to retry."
-        : transcribing
+        : transcribingHere
           ? "Transcribing…"
-          : micError;
-  const turns = toTurns(items);
-  const enabledCount = hooks.filter((hook) => hook.enabled).length;
+          : micErrorKey === active.key
+            ? micError
+            : "";
+  const turns = toTurns(active.items);
+  const enabledCount = features.filter((feature) => feature.enabled).length;
+  const sheetTitle = sheet === "market" ? "Marketplace" : "My features";
+  const sheetId = sheet === "market" ? "marketplace-sheet" : "features-sheet";
+  const sheetHeadingId = sheet === "market" ? "marketplace-heading" : "features-heading";
 
   function pickSuggestion(text: string) {
-    setDraft(text);
+    patch(active.key, (chat) => ({ ...chat, draft: text }));
     composerRef.current?.focus();
   }
 
@@ -383,7 +694,16 @@ export default function Page() {
         className="panel"
         aria-label="Fit-it"
         onKeyDown={(event) => {
-          if (event.key === "Escape") closePanel();
+          if (event.key !== "Escape") return;
+          if (sheet) {
+            closeSheet();
+            return;
+          }
+          if (chatsOpen) {
+            setChatsOpen(false);
+            return;
+          }
+          closePanel();
         }}
       >
         <button
@@ -427,19 +747,238 @@ export default function Page() {
             <path d="M1 7l6-6M1 11L11 1" />
           </svg>
         </button>
+        <div className="panel-top">
         <header className="panel-header">
           <div className="title">
             <Mark />
             <h1>Fit-it</h1>
           </div>
-          <button type="button" className="icon-button" aria-label="Close Fit-it" onClick={closePanel}>
+          {signedOut ? null : (
+            <div className="library-nav">
+              <button
+                type="button"
+                className="library-button"
+                id="features-trigger"
+                ref={featuresTriggerRef}
+                aria-expanded={sheet === "features"}
+                aria-controls="features-sheet"
+                aria-haspopup="dialog"
+                onClick={() => toggleSheet("features")}
+              >
+                My features
+              </button>
+              <button
+                type="button"
+                className="library-button"
+                id="marketplace-trigger"
+                ref={marketTriggerRef}
+                aria-expanded={sheet === "market"}
+                aria-controls="marketplace-sheet"
+                aria-haspopup="dialog"
+                onClick={() => toggleSheet("market")}
+              >
+                Marketplace
+              </button>
+            </div>
+          )}
+          <div className="header-actions">
+            {signedOut ? null : (
+              <button
+                type="button"
+                className="clear-history"
+                aria-label="Clear this chat"
+                title="Clear this chat"
+                disabled={active.busy || active.clearing}
+                onClick={() => void clearChat()}
+              >
+                Clear chat
+              </button>
+            )}
+            <button type="button" className="icon-button" aria-label="Close Fit-it" onClick={closePanel}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          </div>
+        </header>
+        {!signedOut && sheet ? (
+          <>
+            <div className="library-scrim" aria-hidden="true" onClick={() => closeSheet(false)} />
+            <div
+              className="library-sheet"
+              id={sheetId}
+              role="region"
+              aria-labelledby={sheetHeadingId}
+              tabIndex={-1}
+              ref={sheetRef}
+            >
+              <div className="library-sheet-bar">
+                <h2 id={sheetHeadingId}>{sheetTitle}</h2>
+                {sheet === "features" && features.length > 0 ? (
+                  <span className="count">
+                    {enabledCount} of {features.length} on
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Close ${sheetTitle}`}
+                  onClick={() => closeSheet()}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4 4l8 8M12 4l-8 8" />
+                  </svg>
+                </button>
+              </div>
+              {sheet === "features" ? (
+                <Features
+                  features={features}
+                  ready={featuresLoaded}
+                  error={featuresError}
+                  pending={pendingFeature}
+                  onToggle={(feature) => {
+                    if (feature.source === "own") {
+                      void runFeature(featureKey(feature), () => toggleHook(feature.name), () => dropOwn(feature.name));
+                    } else {
+                      void runFeature(
+                        featureKey(feature),
+                        () => toggleSubscription(feature.feature_id),
+                        () => dropSubscribed(feature.feature_id),
+                      );
+                    }
+                  }}
+                  onUndo={(name) => void runFeature(`own:${name}`, () => undoHook(name), () => dropOwn(name))}
+                  onDelete={(feature) => {
+                    if (feature.source === "own") {
+                      void runFeature(featureKey(feature), () => deleteHook(feature.name), () => dropOwn(feature.name));
+                    } else {
+                      void runFeature(
+                        featureKey(feature),
+                        () => unsubscribeFeature(feature.feature_id),
+                        () => dropSubscribed(feature.feature_id),
+                      );
+                    }
+                  }}
+                  onUpdate={(feature) =>
+                    void runFeature(featureKey(feature), () => acceptUpdate(feature.feature_id), () =>
+                      dropSubscribed(feature.feature_id),
+                    )
+                  }
+                  onPublish={publish}
+                  onUnpublish={(feature) => void unpublish(feature)}
+                />
+              ) : (
+                <Marketplace onSignedOut={() => setSignedOut(true)} />
+              )}
+            </div>
+          </>
+        ) : null}
+        </div>
+
+        <div className="window-bar" ref={chatsRootRef}>
+          <div className="window-tabs" role="tablist" aria-label="Chat windows" onKeyDown={onTabsKey}>
+            {windows.map((chat) => {
+              const label = chatLabel(chat);
+              const selected = chat.key === active.key;
+              return (
+                <div
+                  key={chat.key}
+                  ref={selected ? activeTabRef : undefined}
+                  className={selected ? "window-tab is-active" : "window-tab"}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    id={`tab-${chat.key}`}
+                    className="window-tab-select"
+                    aria-selected={selected}
+                    aria-controls="chat-panel"
+                    tabIndex={selected ? 0 : -1}
+                    title={label}
+                    aria-label={chat.busy ? `${label}, working` : label}
+                    ref={(node) => {
+                      if (node) tabRefs.current.set(chat.key, node);
+                      else tabRefs.current.delete(chat.key);
+                    }}
+                    onClick={() => focusWindow(chat.key)}
+                  >
+                    {label}
+                  </button>
+                  {chat.busy && !selected ? <span className="window-busy" aria-hidden="true" /> : null}
+                  {windows.length > 1 ? (
+                    <button
+                      type="button"
+                      className="window-tab-close"
+                      aria-label={`Close ${label}`}
+                      onClick={() => closeWindow(chat.key)}
+                    >
+                      <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M4 4l8 8M12 4l-8 8" />
+                      </svg>
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="window-add"
+            aria-label="Open another chat"
+            disabled={signedOut}
+            onClick={() => showConversation(crypto.randomUUID())}
+          >
             <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 4l8 8M12 4l-8 8" />
+              <path d="M8 3.5v9M3.5 8h9" />
             </svg>
           </button>
-        </header>
+          <button
+            type="button"
+            className="chats-button"
+            aria-label="Earlier chats"
+            aria-expanded={chatsOpen}
+            aria-haspopup="true"
+            disabled={signedOut}
+            onClick={() => {
+              setSheet(null);
+              setChatsOpen((current) => {
+                if (!current) void refreshConversations();
+                return !current;
+              });
+            }}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 4.5h10M3 8h10M3 11.5h6" />
+            </svg>
+          </button>
+          {chatsOpen ? (
+            <div className="conversation-popover" role="group" aria-label="Earlier chats">
+              {conversations.length === 0 ? (
+                <p className="conversation-empty">No earlier chats</p>
+              ) : (
+                <ul>
+                  {conversations.map((conversation) => (
+                    <li key={conversation.id}>
+                      <button type="button" title={conversation.title} onClick={() => showConversation(conversation.id, conversation.title)}>
+                        <span className="conversation-title">{conversation.title}</span>
+                        {conversation.turns !== null ? <span className="conversation-meta">{conversation.turns}</span> : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+        </div>
 
-        <div className="transcript" role="log" aria-live="polite" aria-relevant="additions">
+        <div
+          className="transcript"
+          id="chat-panel"
+          role="tabpanel"
+          aria-labelledby={`tab-${active.key}`}
+          aria-live="polite"
+          aria-relevant="additions"
+        >
           {turns.length === 0 && !signedOut ? (
             <div className="welcome">
               <h2>What should this app do for you?</h2>
@@ -454,7 +993,7 @@ export default function Page() {
             </div>
           ) : null}
           {turns.map((turn, turnIndex) => {
-            const live = busy && turnIndex === turns.length - 1;
+            const live = active.busy && turnIndex === turns.length - 1;
             return (
               <div className="turn" key={turnIndex}>
                 {turn.prompt !== null ? <p className="user-message">{turn.prompt}</p> : null}
@@ -523,6 +1062,12 @@ export default function Page() {
                                 {reply.message}
                               </p>
                             );
+                          case "changed":
+                            return (
+                              <p className="feature-changed" key={index}>
+                                A feature changed.
+                              </p>
+                            );
                         }
                       })}
                       {live && turn.replies[turn.replies.length - 1]?.kind !== "tools" ? (
@@ -537,55 +1082,12 @@ export default function Page() {
           <div ref={bottomRef} />
         </div>
 
-        {!signedOut && (hooks.length > 0 || hooksError) ? (
-          <details className="hooks">
-            <summary>
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M6 4l4 4-4 4" />
-              </svg>
-              Your changes
-              <span className="count">
-                {enabledCount} of {hooks.length} on
-              </span>
-            </summary>
-            {hooksError ? <p className="notice error">{hooksError}</p> : null}
-            <ul>
-              {hooks.map((hook) => (
-                <li key={hook.name}>
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      role="switch"
-                      checked={hook.enabled}
-                      disabled={pendingHook !== ""}
-                      onChange={() => void changeHook(hook.name, toggleHook)}
-                    />
-                    <span className="hook-text">
-                      <span className="hook-name">{hook.name}</span>
-                      <code>{hook.route}</code>
-                    </span>
-                  </label>
-                  <button
-                    type="button"
-                    className="delete"
-                    aria-label={`Delete ${hook.name}`}
-                    disabled={pendingHook !== ""}
-                    onClick={() => void changeHook(hook.name, deleteHook)}
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-
         <p className="status" role="status">
           {status}
         </p>
 
         <form
-          className={dictating ? "composer listening" : "composer"}
+          className={dictatingHere ? "composer listening" : "composer"}
           onSubmit={(event) => {
             event.preventDefault();
             send();
@@ -599,11 +1101,12 @@ export default function Page() {
             aria-label="Describe a change to this app"
             placeholder={signedOut ? SIGN_IN : "Ask Fit-it to change this app…"}
             rows={1}
-            value={draft}
+            value={active.draft}
             disabled={locked}
             onChange={(event) => {
               cancelRecording();
-              setDraft(event.target.value);
+              const value = event.target.value;
+              patch(active.key, (chat) => ({ ...chat, draft: value }));
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -612,12 +1115,12 @@ export default function Page() {
               }
             }}
           />
-          {dictating ? <Waveform /> : null}
+          {dictatingHere ? <Waveform /> : null}
           <div className="composer-bar">
-            <span className={dictating ? "hint listening" : "hint"}>
-              {dictating
+            <span className={dictatingHere ? "hint listening" : "hint"}>
+              {dictatingHere
                 ? "Listening… click the mic to stop"
-                : transcribing
+                : transcribingHere
                   ? "Transcribing…"
                   : "Enter to send, Shift + Enter for a new line"}
             </span>
@@ -627,7 +1130,7 @@ export default function Page() {
                 className={dictating ? "mic on" : "mic"}
                 aria-label={dictating ? "Stop dictation" : "Dictate"}
                 aria-pressed={dictating}
-                disabled={signedOut || busy || transcribing}
+                disabled={signedOut || active.busy || transcribing}
                 onClick={toggleDictation}
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -636,8 +1139,8 @@ export default function Page() {
                 </svg>
               </button>
             ) : null}
-            <button type="submit" className="send" aria-label="Send" disabled={locked || draft.trim() === ""}>
-              {busy ? (
+            <button type="submit" className="send" aria-label="Send" disabled={locked || active.draft.trim() === ""}>
+              {active.busy ? (
                 <svg viewBox="0 0 16 16" aria-hidden="true" className="spin">
                   <path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" />
                 </svg>
