@@ -421,6 +421,13 @@ def test_fork_sends_hook_saved_then_feature_changed(env):
     assert [k for k, _ in env if k in ("hook.saved", "feature.forked")] == ["hook.saved", "feature.forked"]
 
 
+def test_fork_without_name_uses_the_feature_hook_name():
+    fid = feature()
+    model, seen = returns(("fork_feature", {"feature_id": fid}), "ok")
+    chat(model, "fork")
+    assert seen == [f"forked @{fid} into double"] and hooks.read_hook("alice", "double") == GOOD
+
+
 def test_instructions_name_marketplace_tools():
     seen = []
 
@@ -522,3 +529,65 @@ def test_conversation_routes(monkeypatch, database):
     with psycopg.connect(database) as conn:
         assert sorted(conn.execute("SELECT user_id, conversation_id FROM messages").fetchall()) == sorted([
             ("other", "a"), (user, "b")])
+
+
+def test_write_conflicts_when_hook_changed_since_read():
+    hooks.save_hook("alice", "double", GOOD)
+    steps = [("read_hook", {"name": "double"}), ("write_hook", {"name": "double", "code": GOOD3}),
+             ("write_hook", {"name": "double", "code": GOOD3}),  # still stale: conflicts again
+             ("read_hook", {"name": "double"}), ("write_hook", {"name": "double", "code": GOOD3}),
+             ("write_hook", {"name": "double", "code": GOOD}), "ok"]  # its own save is recorded: no conflict
+    calls = []
+
+    def fn(messages, info):
+        calls.append(1)
+        if len(calls) == 2:
+            hooks.save_hook("alice", "double", GOOD.replace("x * 2", "x * 5"))  # another conversation, after the read
+        step = steps.pop(0)
+        if isinstance(step, str):
+            return ModelResponse(parts=[TextPart(step)])
+        return ModelResponse(parts=[ToolCallPart(step[0], step[1])])
+
+    [turn] = chat(FunctionModel(fn), "x3")
+    assert [e["type"] for e in turn if e["type"] != "tool"] == [
+        "hook_rejected", "hook_rejected", "hook_saved", "hook_saved", "text", "done"]
+    assert all(e["reason"].startswith("conflict:") for e in turn if e["type"] == "hook_rejected")
+    assert hooks.read_hook_version("alice", "double") == (GOOD, 4)
+
+
+def test_write_conflicts_on_hook_created_during_turn():
+    calls = []
+
+    def fn(messages, info):
+        calls.append(1)
+        if len(calls) == 1:
+            hooks.save_hook("alice", "double", GOOD3)  # did not exist when the message started
+            return ModelResponse(parts=[ToolCallPart("write_hook", {"name": "double", "code": GOOD})])
+        return ModelResponse(parts=[TextPart("ok")])
+
+    [turn] = chat(FunctionModel(fn), "x2")
+    assert turn[1]["type"] == "hook_rejected" and turn[1]["reason"].startswith("conflict:")
+    assert hooks.read_hook("alice", "double") == GOOD3
+
+
+def test_dry_run_runs_the_whole_chain():
+    hooks.save_hook("alice", "zz_first", 'ROUTE = "GET /api/items"\n\ndef run(data, ctx):\n    return [data[0] + 1]\n')
+    wrap = 'ROUTE = "GET /api/items"\n\ndef run(data, ctx):\n    return {"rows": data}\n'
+    model, seen = returns(("write_hook", {"name": "aa_wrap", "code": wrap}),
+                          ("write_hook", {"name": "aa_double", "code": GOOD}), "ok")
+    [turn] = chat(model, "go")
+    [rejected] = [e for e in turn if e["type"] == "hook_rejected"]
+    assert rejected["reason"].startswith("zz_first failed:")
+    assert seen[-1] == "saved, dry-run output: [3]"  # aa_double then zz_first, on [1, 2, 3]
+    assert [h["name"] for h in hooks.list_hooks("alice")] == ["aa_double", "zz_first"]
+
+
+def test_instructions_say_extend_the_route_hook():
+    seen = []
+
+    def fn(messages, info):
+        seen.append(messages[-1].instructions)
+        return ModelResponse(parts=[TextPart("ok")])
+
+    chat(FunctionModel(fn), "hi")
+    assert "already runs on the same route" in seen[0] and "read_hook" in seen[0]
