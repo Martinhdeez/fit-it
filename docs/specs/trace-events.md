@@ -60,3 +60,14 @@ All `feature.*` events are emitted by `backend/marketplace.py` after the change 
 | `hook.applied`, `hook.failed`, `request.proxied` (new values) | `hook` (or each entry of `hooks`) may be `@<feature_id>` | A subscribed feature ran or failed on the subscriber's request; `user` is the subscriber | MK2 |
 
 A refused subscribe, update or fork (failed dry run) emits nothing new: it changed nothing.
+
+## Minor additions (iteration 04)
+
+Additive; nothing above changes. **To be confirmed by the traceability owner (Álvaro)** before CV1 merges. Decision: [ADR 0024](../adr/0024-parallel-conversations.md).
+
+| Kind | Fields | Emitted when | Item |
+|---|---|---|---|
+| `agent.message`, `agent.tool`, `agent.answer` (new field) | `conversation` (string, the conversation id; `default` for clients that send none) | As before | CV1 |
+| `hook.rejected` (new reasons) | `reason` may start with `conflict:` (the hook changed since the agent read it) or name another hook of the chain (`<hook> failed: ...`) | As before | AG4 |
+
+A message refused as busy emits `agent.message` and nothing else.

@@ -32,3 +32,5 @@ Rules:
 | [0021](0021-real-model-evals-on-demand.md) | Real-model evaluation set, run on demand | Accepted |
 | [0022](0022-feature-marketplace.md) | Feature marketplace inside one app | Accepted |
 | [0023](0023-features-run-as-the-subscriber.md) | Subscribed features run as the subscriber | Accepted |
+| [0024](0024-parallel-conversations.md) | Parallel conversations per user | Accepted |
+| [0025](0025-hook-edits-under-parallel-conversations.md) | Hook edits under parallel conversations: serialized saves, expected version, chain dry run | Accepted |

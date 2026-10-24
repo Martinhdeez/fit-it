@@ -1,19 +1,17 @@
-# Embed widget — v3
+# Embed widget — v4
 
-The chat widget a signed-in user sees on every HTML page. Decisions: [ADR 0015](../adr/0015-widget-as-static-iframe.md), [ADR 0022](../adr/0022-feature-marketplace.md). Built by the frontend teammate, not by agents.
+The chat widget a signed-in user sees on every HTML page. Decisions: [ADR 0015](../adr/0015-widget-as-static-iframe.md), [ADR 0022](../adr/0022-feature-marketplace.md), [ADR 0024](../adr/0024-parallel-conversations.md). Built by the frontend teammate, not by agents.
 
-## Changes from v2
+## Changes from v3
 
-Iteration 03. The v2 text is in git history (`git show 6554dff:docs/specs/embed-widget.md`).
+Iteration 04. The v3 text is in git history (`git show 5c656ce:docs/specs/embed-widget.md`); v2 at `6554dff`.
 
 | # | Change | Breaking | Lands in |
 |---|---|---|---|
-| 1 | "My features" replaces the hook list: one list of own hooks and subscribed features, from `GET /fitit/features` ("My features"). | No (the old routes stay) | WM1 |
-| 2 | A marketplace panel: search, detail, subscribe, fork, report, publish, unpublish ("Marketplace panel"). | No (addition) | WM1 |
-| 3 | The app also reloads after a `done` that follows a `feature_changed` event. | No | WM1 |
-| 4 | Sizing contract: a `resize` message for a user-resizable panel (ADR 0016). | No (addition) | WM1 |
+| 1 | Several chat windows, one conversation each: list from `GET /fitit/conversations`, a new window gets a new UUID, one WebSocket per window ("Conversations"). | No (a widget that sends no id keeps working on `default`) | WC1 |
+| 2 | A new `error` cause: `conversation busy` ("Conversations"). | No | WC1 |
 
-Delivery is unchanged.
+Delivery and sizing are unchanged. Changes in v3 (iteration 03): My features, the marketplace panel, reload after `feature_changed`, the `resize` message.
 
 ## Delivery
 
@@ -35,9 +33,24 @@ The loader ignores messages whose `source` is not its iframe or whose origin is 
 
 ## Widget UI behaviour
 
-- Chat over `WS /fitit/ws`; protocol and events in the [agent spec](agent.md#websocket-protocol-ws-fititws).
+- Chat over `WS /fitit/ws?conversation=<id>`, one socket per chat window ("Conversations"); protocol and events in the [agent spec](agent.md#websocket-protocol-ws-fititws).
 - After a `done` that follows at least one `hook_saved` or `feature_changed`, and after any action in "My features" or the marketplace panel that changes what runs (toggle, delete, unsubscribe, subscribe, accept update, fork), it reloads the app with `window.top.location.reload()`.
 - If the WebSocket closes with `4401`, or any route returns `401`, it shows a sign-in message instead of the chat.
+
+## Conversations
+
+Guidance for the frontend teammate. Contract: [agent spec](agent.md#conversations) and [proxy core routes](proxy.md#core-routes). Decision: [ADR 0024](../adr/0024-parallel-conversations.md).
+
+- **Window list.** `GET /fitit/conversations` → `[{"id", "title", "last_activity", "turns"}]`, latest activity first. Show `title` (fall back to "New chat" when empty) and a relative time from `last_activity`. Reload the list after each `done` and after a delete.
+- **New window.** Generate the id in the browser with `crypto.randomUUID()` and open `WS /fitit/ws?conversation=<id>`. Nothing is created on the server until the first answer is stored, so a window closed before its first answer leaves no trace and does not appear in the list.
+- **One WebSocket per window**, opened with that window's id and kept open while the window is open. Never reuse one socket for two conversations: the id is fixed per socket.
+- **Reopen.** Opening a listed conversation connects with its `id`. The server sends the last 20 turns of that conversation to the model, but there is no route returning the past messages; the window starts empty and shows the title. (A history route is out of scope this iteration.)
+- **Persistence across the reload** that follows a saved hook: keep the open windows' ids in `sessionStorage` (wrapped in try/catch) and reconnect them after the reload.
+- **Busy.** One message at a time per window: disable the input from send until `done`. If the server still answers `error` with `busy` in `message` (the same conversation is open in another tab), show it inline and keep the text in the input so the user can resend.
+- **Delete.** A delete button per conversation → `DELETE /fitit/history?conversation=<id>` (`204`), then close its window and reload the list. "Clear all" (optional) → `DELETE /fitit/history` with no parameter.
+- **Close codes.** `4401`: show the sign-in message. `4400`: the id is invalid; a UUID never is, so treat it as a bug and open a new window.
+- The rate limit is per user across windows; an `error` with `rate limit` applies to all of them.
+- Without any of this (an old widget build), the widget uses `default` and behaves as in v3.
 
 ## Marketplace panel and My features
 

@@ -1,15 +1,17 @@
-# Storage — v2
+# Storage — v3
 
 The core's own PostgreSQL database: connection, schema, test isolation. Decision: [ADR 0017](../adr/0017-postgres-as-core-storage.md). This database never holds credentials for, or data read directly from, the client app's database ([ADR 0003](../adr/0003-api-only-access-to-client-data.md)).
 
-## Changes from v1
+## Changes from v2
 
-Iteration 03. The v1 text is in git history (`git show 6554dff:docs/specs/storage.md`).
+Iteration 04. The v2 text is in git history (`git show 5c656ce:docs/specs/storage.md`); v1 at `6554dff`.
 
 | # | Change | Breaking | Lands in |
 |---|---|---|---|
-| 1 | Four new tables for the marketplace: `features`, `feature_versions`, `subscriptions`, `reports` ("Marketplace tables"). Still `CREATE TABLE IF NOT EXISTS`; the v1 tables are untouched. | No (addition) | MK1 |
-| 2 | `hooks.delete_hook` also unpublishes the feature of the deleted hook ("Who writes what"). | No | MK2 |
+| 1 | `messages` gains `conversation_id text NOT NULL DEFAULT 'default'`, added idempotently with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; existing rows belong to `default`. New index on `(user_id, conversation_id, id)` ([ADR 0024](../adr/0024-parallel-conversations.md)). | **Yes** for tests asserting the exact columns of `messages` (`test_db1.py`); no for rows or code | CV1 |
+| 2 | `hooks.save_hook` takes an advisory lock per `(user, name)` ("Who writes what"). | No | HK1 |
+
+Changes in v2 (iteration 03): the four marketplace tables; `hooks.delete_hook` unpublishes.
 
 ## Service
 
@@ -66,8 +68,18 @@ Primary key `(user_id, name, version)`. No foreign key to `hooks`: versions outl
 | `user_id` | `text` | not null |
 | `turn` | `jsonb` | not null. A JSON array: the turn's new Pydantic AI messages, as produced by `ModelMessagesTypeAdapter.dump_python(messages, mode="json")` |
 | `created_at` | `timestamptz` | not null, default `now()` |
+| `conversation_id` | `text` | not null, default `'default'`. Matches `^[A-Za-z0-9_-]{1,64}$` ([agent spec](agent.md#conversations)) |
 
-Index on `(user_id, id)`. Decision: [ADR 0019](../adr/0019-persistent-chat-history.md).
+Indexes on `(user_id, id)` and `(user_id, conversation_id, id)`. Decisions: [ADR 0019](../adr/0019-persistent-chat-history.md), [ADR 0024](../adr/0024-parallel-conversations.md).
+
+The column is added after the `CREATE TABLE`, so a v2 database gains it at the next start:
+
+```sql
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS conversation_id text NOT NULL DEFAULT 'default';
+CREATE INDEX IF NOT EXISTS messages_user_conversation_id ON messages (user_id, conversation_id, id);
+```
+
+The `CREATE TABLE` statement for `messages` itself stays as in v2, so an empty and an upgraded database end up identical. Rows inserted without `conversation_id` belong to `default`.
 
 ### Marketplace tables
 
@@ -121,7 +133,7 @@ Exactly these columns, types, nullability and keys. Accepting an update changes 
 
 | Table | Written only by |
 |---|---|
-| `hooks`, `hook_versions` | `backend/hooks.py` ([hook contract](hook-contract.md)); a fork writes them through `hooks.save_hook` |
+| `hooks`, `hook_versions` | `backend/hooks.py` ([hook contract](hook-contract.md)); a fork writes them through `hooks.save_hook`. Every `save_hook` holds `pg_advisory_xact_lock` on a key derived from `(user_id, name)` for its transaction ([hook contract](hook-contract.md#concurrent-saves)) |
 | `messages` | `backend/agent.py` ([agent spec](agent.md)) |
 | `features`, `feature_versions`, `subscriptions`, `reports` | `backend/marketplace.py` ([marketplace spec](marketplace.md)), except one statement: `hooks.delete_hook` sets `features.published` to false for `(owner_id, hook_name)` in the same transaction as the delete |
 
