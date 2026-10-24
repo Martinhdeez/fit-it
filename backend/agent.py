@@ -1,10 +1,7 @@
 """Coding agent: turns a chat message into a validated hook. Spec: docs/specs/agent.md."""
 import json
 import os
-import shutil
-import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from psycopg.types.json import Jsonb
 from pydantic_ai import (Agent, CallToolsNode, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessagesTypeAdapter,
@@ -152,15 +149,7 @@ def dry_run(deps: Deps, name: str, code: str, method: str, path: str):
     if not virtual and (method != "GET" or "{" in path):
         return None
     data = None if virtual else deps.api.get(path)
-    # hooks.py exports no "run this code" helper, so the candidate is saved under a throwaway user id and run
-    # through run_hooks, then removed. The real user's hooks are never touched.
-    temp = f"dryrun-{uuid.uuid4().hex}"
-    try:
-        hooks.save_hook(temp, name, code)
-        result, _ = hooks.run_hooks(temp, method, path, data, hooks.Ctx(deps.user, deps.api))
-        return result
-    finally:
-        shutil.rmtree(Path(os.environ.get("WORKSPACES", "./workspaces")) / temp, ignore_errors=True)
+    return hooks.dry_run(deps.user, code, data, deps.api)
 
 
 @agent.tool(retries=MAX_REJECTIONS + 1)
