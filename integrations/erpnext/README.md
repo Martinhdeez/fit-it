@@ -158,6 +158,9 @@ docker compose -f integrations/erpnext/compose.yaml exec backend bench --site fr
 Backups and site configuration can contain credentials; share them privately and
 keep them out of Git. This repository intentionally ships reconstruction scripts.
 
+Seed the Fit-it marketplace with demo features (idempotent, skips existing titles):
+`docker cp integrations/erpnext/seed_marketplace.py fitit-demo-core-1:/tmp/ && docker exec -e PYTHONPATH=/app fitit-demo-core-1 uv run python /tmp/seed_marketplace.py`
+
 ## Provenance
 
 - ERPNext runtime: `frappe/erpnext:v16.52.1`, pinned by digest in Compose.
