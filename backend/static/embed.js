@@ -13,6 +13,11 @@
     if (e.source !== f.contentWindow || e.origin !== location.origin || !e.data) return;
     if (e.data.fitit === "open") size("min(420px, calc(100vw - 32px))", "min(640px, calc(100vh - 32px))");
     if (e.data.fitit === "close") size("64px", "64px");
+    if (e.data.fitit === "resize" && isFinite(e.data.width) && isFinite(e.data.height) &&
+        typeof e.data.width === "number" && typeof e.data.height === "number") {
+      size(clamp(e.data.width, innerWidth) + "px", clamp(e.data.height, innerHeight) + "px");
+    }
   });
+  function clamp(v, viewport) { return Math.round(Math.max(64, Math.min(v, viewport - 32))); }
   document.body.appendChild(f);
 })();

@@ -34,3 +34,4 @@ Rules:
 | [0023](0023-features-run-as-the-subscriber.md) | Subscribed features run as the subscriber | Accepted |
 | [0024](0024-parallel-conversations.md) | Parallel conversations per user | Accepted |
 | [0025](0025-hook-edits-under-parallel-conversations.md) | Hook edits under parallel conversations: serialized saves, expected version, chain dry run | Accepted |
+| [0026](0026-trace-journal-and-otel-export.md) | Trace journal and OpenTelemetry export | Proposed |

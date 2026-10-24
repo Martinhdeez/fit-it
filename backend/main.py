@@ -16,12 +16,17 @@ import db
 import hooks
 import marketplace
 import trace
+import transcribe
 
 
 @asynccontextmanager
 async def lifespan(app):
     await run_in_threadpool(db.init)
-    yield
+    await run_in_threadpool(trace.startup)
+    try:
+        yield
+    finally:
+        await run_in_threadpool(trace.shutdown, 5000)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -292,6 +297,21 @@ async def report_feature(id: str, request: Request):
     body = await json_body(request)
     return await run_in_threadpool(
         market, request, lambda user, fid: marketplace.report(user, fid, *fields(body, "reason")), id)
+
+
+@app.post("/fitit/transcribe")
+async def transcribe_audio(request: Request, language: str = ""):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    audio = await request.body()
+    try:
+        text = await run_in_threadpool(
+            transcribe.transcribe, audio, request.headers.get("content-type", ""), language
+        )
+    except transcribe.TranscriptionError as error:
+        return JSONResponse({"error": error.code}, error.status)
+    return {"text": text}
 
 
 @app.websocket("/fitit/ws")
