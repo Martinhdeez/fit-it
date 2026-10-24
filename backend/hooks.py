@@ -3,7 +3,9 @@ import ast
 import difflib
 import json
 import math
+import os
 import re
+import sys
 import time
 from datetime import date, datetime, timedelta
 
@@ -45,9 +47,8 @@ class Ctx:
 
 
 def check_code(code: str) -> tuple[str, str]:
-    # ponytail: AST deny-list + allow-listed builtins, not a real sandbox: no time or memory limit
-    # (an infinite loop blocks the worker), and str.format can read attributes. Upgrade path: run
-    # hooks in a subprocess with resource limits (ADR 0004).
+    # ponytail: AST deny-list + allow-listed builtins, not a real sandbox: no memory limit, and
+    # str.format can read attributes. Upgrade path: run hooks in a subprocess with resource limits (ADR 0004).
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -179,14 +180,39 @@ def _matches(route_path: str, path: str) -> bool:
         w == g or (w.startswith("{") and w.endswith("}") and g != "") for w, g in zip(want, got))
 
 
+class _TimeLimit(BaseException):
+    """BaseException so an `except Exception` inside code the hook calls (ctx.api.get) cannot swallow it."""
+
+
 def _run(hook: str | None, code: str, data, ctx):
+    timeout_ms = int(os.environ.get("FITIT_HOOK_TIMEOUT_MS", "2000"))
+    max_bytes = int(os.environ.get("FITIT_HOOK_MAX_BYTES", "1000000"))
+    deadline = time.monotonic() + timeout_ms / 1000
+
+    # ponytail: the deadline is checked between Python events only, so a single long C call
+    # (sum(range(10**12))) is not interrupted, and CPython drops a tracer once it raises, so a loop in a
+    # bare `except:` or `finally:` that runs after the breach is not stopped either. Upgrade path: run
+    # hooks in a killable subprocess (ADR 0020).
+    def tracer(frame, event, arg):
+        if time.monotonic() > deadline:
+            raise _TimeLimit
+        return tracer
+
     scope = {"__builtins__": SAFE_BUILTINS, **SCOPE_VALUES}
+    previous = sys.gettrace()
+    sys.settrace(tracer)
     try:
         exec(compile(code, f"{hook or 'dry_run'}.py", "exec"), scope)
         data = scope["run"](data, ctx)
-        json.dumps(data)
+        size = len(json.dumps(data, ensure_ascii=False).encode())
+    except _TimeLimit:
+        raise HookError(hook, f"time limit of {timeout_ms} ms exceeded")
     except Exception as e:
         raise HookError(hook, f"{type(e).__name__}: {e}")
+    finally:
+        sys.settrace(previous)
+    if size > max_bytes:
+        raise HookError(hook, f"output of {size} bytes is over the limit of {max_bytes} bytes")
     return data
 
 
