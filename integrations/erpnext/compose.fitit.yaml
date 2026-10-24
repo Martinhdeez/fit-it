@@ -9,6 +9,9 @@ services:
       - FITIT_USER_PATH=/api/method/frappe.auth.get_logged_user
       - FITIT_USER_FIELD=message
       - FITIT_ANONYMOUS_USERS=Guest
+      - FITIT_OPENAPI_FILE=/erpnext/openapi.json
+    volumes:
+      - ./integrations/erpnext/openapi.json:/erpnext/openapi.json:ro
     networks: [default, erpnext]
 
 networks:
