@@ -8,7 +8,7 @@ Each epic is a slice of the product with stories and their acceptance criteria. 
 | [E2 Proxy core](e2-proxy-core.md) | PX1 | Agents | Planned |
 | [E3 Hook runtime](e3-hook-runtime.md) | HR1 | Agents | Planned |
 | [E4 Coding agent](e4-coding-agent.md) | AG1 | Agents | Planned |
-| [E5 Embed widget](e5-embed-widget.md) | EW1 | Agents, checked by Martín | Planned |
+| [E5 Embed widget](e5-embed-widget.md) | EW1 | Frontend teammate | Planned |
 | [E6 Traceability](e6-traceability.md) | TR1 | Álvaro | Planned |
 | [E7 Delivery](e7-delivery.md) | OP1 | Agents | Planned |
 

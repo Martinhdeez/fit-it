@@ -21,7 +21,7 @@ Per [ADR 0013](../../adr/0013-developer-and-tester-agents.md): for each item, a 
 | HR1 | Hook runtime | [E3](../../epics/e3-hook-runtime.md) | OP1 | REQ-HR1-1 … 9 |
 | PX1 | Proxy | [E2](../../epics/e2-proxy-core.md) | HR1, DA1 | REQ-PX1-1 … 10 |
 | AG1 | Coding agent | [E4](../../epics/e4-coding-agent.md) | HR1, PX1 | REQ-AG1-1 … 8 |
-| EW1 | Embed widget | [E5](../../epics/e5-embed-widget.md) | AG1 | REQ-EW1-1 … 5 (manual) |
+| EW1 | Embed widget | [E5](../../epics/e5-embed-widget.md) | AG1 | REQ-EW1-1 … 5 (manual) — **frontend teammate** |
 | TR1 | Trace sink | [E6](../../epics/e6-traceability.md) | — | REQ-TR1-1 … 3 — **Álvaro** |
 
 ## Waves
@@ -30,7 +30,7 @@ Per [ADR 0013](../../adr/0013-developer-and-tester-agents.md): for each item, a 
 2. **HR1.**
 3. **PX1.**
 4. **AG1.**
-5. **EW1**, then the demo rehearsal from [`demo-script.md`](../../product/demo-script.md).
+5. **EW1** (built by the frontend teammate against `embed-widget.md` and the WebSocket protocol in `agent.md`; not given to agents), then the demo rehearsal from [`demo-script.md`](../../product/demo-script.md).
 
 ## Out of scope
 
