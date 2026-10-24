@@ -15,12 +15,16 @@ services:
       - GROQ_API_KEY
       - MISTRAL_API_KEY
       - OLLAMA_BASE_URL
+      - FITIT_HOOK_TIMEOUT_MS
+      - FITIT_HOOK_MAX_BYTES
+      - FITIT_AGENT_MESSAGES_PER_HOUR
       - BASE_URL=http://demo:8001
-      - WORKSPACES=/workspaces
-    volumes:
-      - ./workspaces:/workspaces
+      # Development-only default password; set POSTGRES_PASSWORD in the shell elsewhere (ADR 0017).
+      - DATABASE_URL=postgresql://fitit:${POSTGRES_PASSWORD:-fitit}@postgres:5432/fitit
     depends_on:
       demo:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   demo:
@@ -30,3 +34,20 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/openapi.json')"]
       interval: 2s
       retries: 15
+
+  postgres:
+    image: postgres:17
+    # No published port: only the core reaches the database (docs/specs/storage.md).
+    environment:
+      - POSTGRES_USER=fitit
+      - POSTGRES_DB=fitit
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fitit}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "fitit", "-d", "fitit"]
+      interval: 2s
+      retries: 15
+
+volumes:
+  pgdata:

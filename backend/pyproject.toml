@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi",
     "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.6",
     "pydantic-ai-slim[anthropic,google,groq,mistral,openai]>=2.61.0",
     "uvicorn",
     "websockets>=17.3",
