@@ -14,6 +14,7 @@ from pydantic_ai.models.function import FunctionModel
 import agent
 import db
 import hooks
+import marketplace
 import trace
 
 GOOD = 'ROUTE = "GET /api/items"\n\ndef run(data, ctx):\n    ctx.log("hi")\n    return [x * 2 for x in data]\n'
@@ -310,3 +311,121 @@ def test_delete_history_route(monkeypatch, database):
     assert c.delete("/fitit/history").status_code == 204
     with psycopg.connect(database) as conn:
         assert conn.execute("SELECT user_id FROM messages").fetchall() == [("other",)]
+
+
+def returns(*steps):
+    """Like scripted, plus the list of tool return texts the model received, in order."""
+    seen, steps = [], list(steps)
+
+    def fn(messages, info):
+        part = messages[-1].parts[-1]
+        if part.part_kind == "tool-return":
+            seen.append(part.content)
+        step = steps.pop(0)
+        if isinstance(step, str):
+            return ModelResponse(parts=[TextPart(step)])
+        return ModelResponse(parts=[ToolCallPart(step[0], step[1])])
+    return FunctionModel(fn), seen
+
+
+def changes(turn):
+    return [(e["feature_id"], e["action"]) for e in turn if e["type"] == "feature_changed"]
+
+
+def feature(code=GOOD):
+    hooks.save_hook("bob", "double", code)
+    return marketplace.publish("bob", "double", "Double", "x2 items")["id"]
+
+
+def test_publish_search_unpublish(env):
+    hooks.save_hook("alice", "double", GOOD)
+    model, seen = returns(("publish_hook", {"name": "nope", "title": "T", "description": "D"}),
+                          ("publish_hook", {"name": "double", "title": "Double", "description": "x2 items"}), "ok")
+    [turn] = chat(model, "publish")
+    assert seen[0].startswith("not_found:")
+    [fid] = [f["id"] for f in marketplace.search("alice")]
+    assert seen[1] == f"published @{fid} version 1"
+    assert changes(turn) == [(fid, "published")] and [e["type"] for e in turn][-2:] == ["text", "done"]
+
+    model, seen = returns(("search_features", {"query": "X2"}), ("search_features", {"query": "zzz"}),
+                          ("unpublish_feature", {"feature_id": fid}), "ok")
+    [turn] = chat(model, "find and hide")
+    assert seen == [f"@{fid} Double — GET /api/items — x2 items (0 subscribers, v1) [mine]", "no features found",
+                    f"unpublished @{fid}"]
+    assert changes(turn) == [(fid, "unpublished")] and marketplace.search("alice") == []
+    assert [(k, f["user"]) for k, f in env if k.startswith("feature.")] == [
+        ("feature.published", "alice"), ("feature.unpublished", "alice")]
+
+
+def test_unpublish_by_other_user_is_forbidden():
+    fid = feature()
+    model, seen = returns(("unpublish_feature", {"feature_id": fid}), "ok")
+    [turn] = chat(model, "hide")
+    assert seen[0].startswith("forbidden:") and changes(turn) == []
+    assert marketplace.get_feature("alice", fid)["published"]
+
+
+def test_subscribe_update_unsubscribe(env):
+    fid = feature()
+    model, seen = returns(("subscribe_feature", {"feature_id": fid}), ("subscribe_feature", {"feature_id": fid}),
+                          ("search_features", {"query": ""}), "ok")
+    [turn] = chat(model, "subscribe")
+    assert seen[0] == f"subscribed to @{fid} version 1" and seen[1].startswith("already_subscribed:")
+    assert seen[2] == f"@{fid} Double — GET /api/items — x2 items (1 subscribers, v1) [subscribed]"
+    assert changes(turn) == [(fid, "subscribed")]
+    assert [s["version"] for s in marketplace.subscriptions("alice")] == [1]
+
+    hooks.save_hook("bob", "double", GOOD3)
+    marketplace.publish("bob", "double", "Double", "x3 now")
+    instructions = []
+
+    def fn(messages, info):
+        instructions.append(messages[-1].instructions)
+        return ModelResponse(parts=[TextPart("ok")])
+
+    chat(FunctionModel(fn), "what do I have?")
+    assert f"@{fid} Double: GET /api/items (v1, enabled, update available)" in instructions[0]
+
+    model, seen = returns(("accept_update", {"feature_id": fid}), ("unsubscribe_feature", {"feature_id": fid}),
+                          ("unsubscribe_feature", {"feature_id": fid}), "ok")
+    [turn] = chat(model, "update then drop")
+    assert seen[:2] == [f"@{fid} updated to version 2", f"unsubscribed from @{fid}"]
+    assert seen[2].startswith("not_found:")
+    assert changes(turn) == [(fid, "updated"), (fid, "unsubscribed")]
+    assert [(k, f["user"]) for k, f in env if k.startswith("feature.")] == [
+        ("feature.published", "bob"), ("feature.subscribed", "alice"), ("feature.published", "bob"),
+        ("feature.updated", "alice"), ("feature.unsubscribed", "alice")]
+
+
+def test_subscribe_dry_run_failure_writes_nothing():
+    fid = feature(CRASH)
+    model, seen = returns(("subscribe_feature", {"feature_id": fid}), "sorry")
+    [turn] = chat(model, "subscribe")
+    assert seen[0].startswith("dry_run_failed:") and changes(turn) == []
+    assert [e["type"] for e in turn][-2:] == ["text", "done"]
+    assert marketplace.subscriptions("alice") == []
+
+
+def test_fork_sends_hook_saved_then_feature_changed(env):
+    fid = feature()
+    marketplace.subscribe("alice", fid, Api())
+    model, seen = returns(("fork_feature", {"feature_id": fid, "name": "mine"}), "ok")
+    [turn] = chat(model, "fork")
+    assert seen == [f"forked @{fid} into mine"]
+    events = [e for e in turn if e["type"] in ("hook_saved", "feature_changed")]
+    assert [e["type"] for e in events] == ["hook_saved", "feature_changed"] and changes(turn) == [(fid, "forked")]
+    assert events[0]["name"] == "mine" and events[0]["route"] == "GET /api/items" and "+++ b/mine.py" in events[0]["diff"]
+    assert hooks.read_hook("alice", "mine") == GOOD and marketplace.subscriptions("alice") == []
+    assert [k for k, _ in env if k in ("hook.saved", "feature.forked")] == ["hook.saved", "feature.forked"]
+
+
+def test_instructions_name_marketplace_tools():
+    seen = []
+
+    def fn(messages, info):
+        seen.append(messages[-1].instructions)
+        return ModelResponse(parts=[TextPart("ok")])
+
+    chat(FunctionModel(fn), "hi")
+    assert "no subscriptions" in seen[0]
+    assert all(t in seen[0] for t in ("search_features", "subscribe_feature", "publish_hook"))
