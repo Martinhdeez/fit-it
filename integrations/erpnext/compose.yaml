@@ -1,0 +1,163 @@
+# Evaluation sandbox based on frappe/frappe_docker pwd.yml at ce862c7.
+# See LICENSE.frappe-docker. Runtime images are pinned to immutable digests.
+name: ${ERPNEXT_PROJECT_NAME:-fitit-erpnext}
+
+x-frappe: &frappe
+  image: frappe/erpnext:v16.52.1@sha256:eb1c22d2bb926ed97352b63334507bf0297f1ca1244b406e3f30869ca5d0092b
+  networks: [frappe_network]
+  volumes:
+    - sites:/home/frappe/frappe-bench/sites
+    - logs:/home/frappe/frappe-bench/logs
+
+x-running: &running
+  <<: *frappe
+  restart: unless-stopped
+  depends_on:
+    create-site:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: mariadb:11.8@sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
+    restart: unless-stopped
+    networks: [frappe_network]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ERPNEXT_DB_PASSWORD:?Set ERPNEXT_DB_PASSWORD in your shell}
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --skip-character-set-client-handshake]
+    volumes: [db-data:/var/lib/mysql]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  redis-cache:
+    image: redis:6.2-alpine@sha256:592b215e9287182f11ba9d7c229dc0ba312bb900a016ea65ae378b0127567319
+    restart: unless-stopped
+    networks: [frappe_network]
+
+  redis-queue:
+    image: redis:6.2-alpine@sha256:592b215e9287182f11ba9d7c229dc0ba312bb900a016ea65ae378b0127567319
+    restart: unless-stopped
+    networks: [frappe_network]
+    volumes: [redis-queue-data:/data]
+
+  configurator:
+    <<: *frappe
+    depends_on:
+      db: {condition: service_healthy}
+      redis-cache: {condition: service_started}
+      redis-queue: {condition: service_started}
+    entrypoint: [bash, -ec]
+    command:
+      - |
+        ls -1 apps > sites/apps.txt
+        bench set-config -g db_host db
+        bench set-config -gp db_port 3306
+        bench set-config -g redis_cache redis://redis-cache:6379
+        bench set-config -g redis_queue redis://redis-queue:6379
+        bench set-config -g redis_socketio redis://redis-queue:6379
+        bench set-config -gp socketio_port 9000
+
+  create-site:
+    <<: *frappe
+    depends_on:
+      configurator: {condition: service_completed_successfully}
+    environment:
+      ERPNEXT_ADMIN_PASSWORD: ${ERPNEXT_ADMIN_PASSWORD:?Set ERPNEXT_ADMIN_PASSWORD in your shell}
+      ERPNEXT_DB_PASSWORD: ${ERPNEXT_DB_PASSWORD:?Set ERPNEXT_DB_PASSWORD in your shell}
+      ERPNEXT_PUBLIC_URL: http://localhost:${ERPNEXT_HOST_PORT:-8080}
+    entrypoint: [bash, -ec]
+    command:
+      - |
+        if [ -d sites/frontend ]; then
+          bench --site frontend list-apps | grep -q erpnext || {
+            echo 'Existing site is incomplete; inspect create-site logs before retrying.' >&2
+            exit 1
+          }
+        else
+          bench new-site frontend --mariadb-user-host-login-scope='%' \
+            --admin-password="$$ERPNEXT_ADMIN_PASSWORD" --db-root-username=root \
+            --db-root-password="$$ERPNEXT_DB_PASSWORD" --install-app erpnext --set-default
+        fi
+        bench --site frontend set-config host_name "$$ERPNEXT_PUBLIC_URL"
+
+  backend:
+    <<: *running
+    healthcheck:
+      test: [CMD, /home/frappe/frappe-bench/env/bin/python, -c, "import urllib.request; r=urllib.request.Request('http://localhost:8000/api/method/ping', headers={'Host':'frontend'}); urllib.request.urlopen(r, timeout=5)"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  frontend:
+    <<: *running
+    command: [nginx-entrypoint.sh]
+    depends_on:
+      backend: {condition: service_healthy}
+      websocket: {condition: service_started}
+    environment:
+      BACKEND: backend:8000
+      FRAPPE_SITE_NAME_HEADER: frontend
+      SOCKETIO: websocket:9000
+      PROXY_READ_TIMEOUT: "120"
+      CLIENT_MAX_BODY_SIZE: 50m
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+      - ./nginx/frappe.conf.template:/templates/nginx/frappe.conf.template:ro
+    ports: ["127.0.0.1:${ERPNEXT_HOST_PORT:-8080}:8080"]
+    networks:
+      frappe_network:
+        aliases: [erpnext]
+
+  websocket:
+    <<: *running
+    command: [node, /home/frappe/frappe-bench/apps/frappe/socketio.js]
+    environment: &redis
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+
+  queue-long:
+    <<: *running
+    command: [bench, worker, --queue, "long,default,short"]
+    environment: *redis
+
+  queue-short:
+    <<: *running
+    command: [bench, worker, --queue, "short,default"]
+    environment: *redis
+
+  scheduler:
+    <<: *running
+    command: [bench, schedule]
+
+  bootstrap:
+    <<: *frappe
+    profiles: [tools]
+    depends_on:
+      frontend: {condition: service_started}
+    working_dir: /home/frappe/frappe-bench/sites
+    environment:
+      ERPNEXT_ADMIN_PASSWORD: ${ERPNEXT_ADMIN_PASSWORD:?Set ERPNEXT_ADMIN_PASSWORD in your shell}
+      FITIT_SEED_DATE: ${FITIT_SEED_DATE:-2026-10-24}
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+      - .:/bootstrap:ro
+    entrypoint: [bash, -ec]
+    command:
+      - |
+        /home/frappe/frappe-bench/env/bin/python /bootstrap/seed_mock_data.py
+        /home/frappe/frappe-bench/env/bin/python /bootstrap/seed_dashboard.py
+        /home/frappe/frappe-bench/env/bin/python /bootstrap/smoke_check.py
+
+volumes:
+  db-data:
+  redis-queue-data:
+  sites:
+  logs:
+
+networks:
+  frappe_network:
