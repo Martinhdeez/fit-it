@@ -99,7 +99,7 @@ def test_raising_model_fails_without_raising():
     def boom(messages, info):
         raise RuntimeError("model down")
     r = run(boom)
-    assert not r["passed"] and "model down" in r["detail"]
+    assert not r["passed"] and "assistant is unavailable" in r["detail"]  # the raw error goes to the log
     assert r["input_tokens"] is None and r["output_tokens"] is None
 
 
