@@ -98,7 +98,7 @@ def age_column(before, after, get=None):
 def appointments_sorted(before, after, get=None):
     rows_by_id(before, after)
     starts = [r["starts_at"] for r in after]
-    assert starts == sorted(starts), f"starts_at not earliest first: {starts}"
+    assert starts == sorted(starts, reverse=True), f"starts_at not latest first: {starts}"
 
 
 def vat_column(before, after, get=None):
@@ -144,7 +144,7 @@ CASES = [
     {"id": "age_column", "user": "dr_garcia", "turns": ["Add each patient's age, calculated from the birth date"],
      "route": "/api/patients", "check": age_column},
     {"id": "appointments_sorted", "user": "gerente",
-     "turns": ["Show my appointments ordered by start time, earliest first"], "route": "/api/appointments",
+     "turns": ["Show my appointments ordered by start time, latest first"], "route": "/api/appointments",
      "check": appointments_sorted},
     {"id": "vat_column", "user": "gerente", "turns": ["Add a column with each invoice amount including 21% VAT"],
      "route": "/api/invoices", "check": vat_column},
