@@ -26,13 +26,15 @@ How to work:
 - Change only what the user asked for. One hook per request.
 - To change an existing behaviour, read_hook it, then write_hook with the SAME name and the new code. Never add a
   second hook for something an existing hook already does.
-- When one of the user's hooks already runs on the same route as the change, read_hook it and extend it with
-  write_hook under its name, instead of adding a new hook, unless the user asks for a separate one.
+- Before changing an existing hook, always read_hook it: the stored code is the source of truth and may have been
+  changed or undone outside this chat. Never re-apply values from earlier turns without reading it.
+- When one of the user's hooks already runs on the same route, edit it only when the request changes what that hook
+  does. An unrelated change goes in a new hook with its own name (hooks on a route chain in name order).
 - If write_hook is rejected with conflict:, the hook changed since you saw it: read_hook it again and reapply your
   change.
 - write_hook validates and dry-runs the code. If it is rejected, read the reason, fix the code and call it again.
 - When the user asks to undo or go back, call undo_hook with the hook's name.
-- Answer in the user's language, in at most three sentences.
+- Reply in the language of the user's latest message, in at most three sentences.
 
 Marketplace. Other users of the app publish their hooks as features (named @<id>) that this user can subscribe to.
 - Before writing a new hook, call search_features. If a feature does what the user asked, describe it and ask whether
@@ -387,61 +389,65 @@ def fork_feature(ctx: RunContext[Deps], feature_id: int, name: str | None = None
 async def handle_ws(websocket, user: str, api, conversation: str = "default") -> None:
     if websocket.client_state == WebSocketState.CONNECTING:
         await websocket.accept()
-    while True:
-        try:
+    try:
+        while True:
             msg = await websocket.receive_json()
-        except WebSocketDisconnect:
-            return
-        text = msg.get("text") if isinstance(msg, dict) and msg.get("type") == "message" else None
-        if not isinstance(text, str):
-            await websocket.send_json({"type": "error", "message": 'expected {"type": "message", "text": "..."}'})
-            await websocket.send_json({"type": "done"})
-            continue
-        trace.emit("agent.message", user=user, text=text, conversation=conversation)
-        key = (user, conversation)
-        if key in _busy:
-            await websocket.send_json({"type": "error", "message": "conversation busy: a message is still running"})
-            await websocket.send_json({"type": "done"})
-            continue
-        if rate_limited(user):
-            limit = os.environ.get("FITIT_AGENT_MESSAGES_PER_HOUR", "60")
-            await websocket.send_json({"type": "error", "message": f"rate limit: at most {limit} messages per hour"})
-            await websocket.send_json({"type": "done"})
-            continue
-        deps = Deps(user=user, api=api)
+            text = msg.get("text") if isinstance(msg, dict) and msg.get("type") == "message" else None
+            if not isinstance(text, str):
+                await websocket.send_json({"type": "error", "message": 'expected {"type": "message", "text": "..."}'})
+                await websocket.send_json({"type": "done"})
+                continue
+            trace.emit("agent.message", user=user, text=text, conversation=conversation)
+            key = (user, conversation)
+            if key in _busy:
+                await websocket.send_json({"type": "error", "message": "conversation busy: a message is still running"})
+                await websocket.send_json({"type": "done"})
+                continue
+            if rate_limited(user):
+                limit = os.environ.get("FITIT_AGENT_MESSAGES_PER_HOUR", "60")
+                message = f"rate limit: at most {limit} messages per hour"
+                await websocket.send_json({"type": "error", "message": message})
+                await websocket.send_json({"type": "done"})
+                continue
+            deps = Deps(user=user, api=api)
 
-        async def flush():
-            while deps.events:
-                await websocket.send_json(deps.events.pop(0))
+            async def flush():
+                while deps.events:
+                    await websocket.send_json(deps.events.pop(0))
 
-        _busy.add(key)  # no await since the check above, so check-and-add is atomic on the event loop
-        try:
-            history = load_history(user, conversation)  # every message: nothing cached (ADR 0019)
-            deps.versions = hooks.versions(user)  # the versions this message starts from (ADR 0025)
-            async with agent.iter(text, deps=deps, message_history=history, model=model_name()) as run:
-                async for node in run:
-                    if not isinstance(node, CallToolsNode):
-                        continue
-                    async with node.stream(run.ctx) as events:
-                        async for event in events:
-                            if isinstance(event, FunctionToolCallEvent):
-                                name, args = event.part.tool_name, event.part.args_as_dict()
-                                trace.emit("agent.tool", user=user, tool=name, input=args, conversation=conversation)
-                                await websocket.send_json({"type": "tool", "name": name, "input": args})
-                            elif isinstance(event, FunctionToolResultEvent):
-                                await flush()
-            await flush()
-            save_turn(user, run.result.new_messages(), conversation)
-            usage = run.result.usage
-            trace.emit("agent.answer", user=user, text=run.result.output, conversation=conversation,
-                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
-            await websocket.send_json({"type": "text", "text": run.result.output})
-        except Exception as e:
-            await flush()
-            message = str(e) or type(e).__name__
-            if message.startswith("Unknown model"):
-                message += ". Set FITIT_MODEL to a Pydantic AI 'provider:model' string."
-            await websocket.send_json({"type": "error", "message": message})
-        finally:
-            _busy.discard(key)
-        await websocket.send_json({"type": "done"})
+            _busy.add(key)  # no await since the check above, so check-and-add is atomic on the event loop
+            try:
+                history = load_history(user, conversation)  # every message: nothing cached (ADR 0019)
+                deps.versions = hooks.versions(user)  # the versions this message starts from (ADR 0025)
+                async with agent.iter(text, deps=deps, message_history=history, model=model_name()) as run:
+                    async for node in run:
+                        if not isinstance(node, CallToolsNode):
+                            continue
+                        async with node.stream(run.ctx) as events:
+                            async for event in events:
+                                if isinstance(event, FunctionToolCallEvent):
+                                    name, args = event.part.tool_name, event.part.args_as_dict()
+                                    trace.emit("agent.tool", user=user, tool=name, input=args,
+                                               conversation=conversation)
+                                    await websocket.send_json({"type": "tool", "name": name, "input": args})
+                                elif isinstance(event, FunctionToolResultEvent):
+                                    await flush()
+                await flush()
+                save_turn(user, run.result.new_messages(), conversation)
+                usage = run.result.usage
+                trace.emit("agent.answer", user=user, text=run.result.output, conversation=conversation,
+                           input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
+                await websocket.send_json({"type": "text", "text": run.result.output})
+            except WebSocketDisconnect:
+                raise
+            except Exception as e:
+                await flush()
+                message = str(e) or type(e).__name__
+                if message.startswith("Unknown model"):
+                    message += ". Set FITIT_MODEL to a Pydantic AI 'provider:model' string."
+                await websocket.send_json({"type": "error", "message": message})
+            finally:
+                _busy.discard(key)
+            await websocket.send_json({"type": "done"})
+    except WebSocketDisconnect:
+        pass  # the client left, maybe mid-turn: nothing more to send
