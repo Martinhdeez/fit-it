@@ -28,6 +28,16 @@ SAFE_BUILTINS = {
     for f in (len, sum, min, max, abs, round, sorted, reversed, any, all, enumerate, zip, range, map, filter,
               str, int, float, bool, list, dict, set, tuple, isinstance)
 }
+
+
+def _import(name, *args, **kwargs):
+    # datetime.strptime imports _strptime through the caller's builtins; hook code cannot name __import__ (guard).
+    if name != "_strptime":
+        raise ImportError(f"import of {name} is not allowed")
+    return __import__(name, *args, **kwargs)
+
+
+SAFE_BUILTINS["__import__"] = _import
 SCOPE_VALUES = {"date": date, "datetime": datetime, "timedelta": timedelta, "math": math}
 
 
