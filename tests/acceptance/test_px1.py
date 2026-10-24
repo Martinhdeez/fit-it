@@ -1,14 +1,27 @@
 """Acceptance tests for PX1 (proxy), written from docs/specs/proxy.md,
-hook-contract.md, trace-events.md and demo-app.md only."""
+hook-contract.md, trace-events.md and demo-app.md only.
+
+Iteration 02 (HS2): fixtures moved from hook files to the database (hook-contract v2, storage v1).
+"""
 
 import os
+import uuid
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+import hooks
 import trace
 from main import app
+
+# Until DB1 lands, psycopg and db are missing; keep the file collectable so tests fail, not error.
+try:
+    import psycopg
+
+    import db
+except ImportError:
+    psycopg = db = None
 
 DEMO_URL = os.environ.get("DEMO_URL", "http://demo:8001")
 SCRIPT = '<script src="/fitit/embed.js" defer></script>'
@@ -52,10 +65,24 @@ def run(data, ctx):
 
 
 @pytest.fixture
-def ws(tmp_path, monkeypatch):
+def database(monkeypatch):
+    base = os.environ["DATABASE_URL"]
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    url = f"{base}?options=-csearch_path%3D{schema}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.init()
+    yield url
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture
+def ws(database, monkeypatch):
+    """The test's own schema URL (iteration 01 used a temporary hook-file folder)."""
     monkeypatch.setenv("BASE_URL", DEMO_URL)
-    monkeypatch.setenv("WORKSPACES", str(tmp_path))
-    return tmp_path
+    return database
 
 
 @pytest.fixture
@@ -66,11 +93,16 @@ def events(monkeypatch):
 
 
 def write_hook(ws, user, name, code, enabled=True):
-    folder = ws / user
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / (f"{name}.py" if enabled else f"{name}.py.off")
-    path.write_text(code, encoding="utf-8")
-    return path
+    hooks.save_hook(user, name, code)
+    if not enabled:
+        hooks.toggle_hook(user, name)
+
+
+def enabled_of(ws, user, name):
+    """`hooks.enabled` of that row, or None if there is no row."""
+    with psycopg.connect(ws) as conn:
+        row = conn.execute("SELECT enabled FROM hooks WHERE user_id = %s AND name = %s", (user, name)).fetchone()
+    return row[0] if row else None
 
 
 def core(user=None):
@@ -291,11 +323,11 @@ def test_req_px1_7_hook_result_200(ws):
     ("DELETE", "/fitit/hooks/add_flag"),
 ])
 def test_req_px1_8_anonymous_401(ws, method, path):
-    hook = write_hook(ws, "gerente", "add_flag", ADD_FLAG)
+    write_hook(ws, "gerente", "add_flag", ADD_FLAG)
     r = core().request(method, path)
     assert r.status_code == 401
     assert r.json() == {"error": "unauthenticated"}
-    assert hook.exists()
+    assert enabled_of(ws, "gerente", "add_flag") is True
 
 
 def test_req_px1_8_list_hooks(ws):
@@ -324,8 +356,7 @@ def test_req_px1_8_toggle_off_stops_applying_and_on_again(ws):
     r = client.post("/fitit/hooks/add_flag/toggle")
     assert r.status_code == 200
     assert r.json() == {"name": "add_flag", "enabled": False}
-    assert (ws / "gerente" / "add_flag.py.off").exists()
-    assert not (ws / "gerente" / "add_flag.py").exists()
+    assert enabled_of(ws, "gerente", "add_flag") is False
     r = client.get("/api/invoices")
     assert "x-fitit-hooks" not in r.headers
     assert r.json() == original
@@ -342,7 +373,7 @@ def test_req_px1_8_toggle_missing_404(ws):
     write_hook(ws, "recepcion", "add_flag", ADD_FLAG)
     r = core("gerente").post("/fitit/hooks/add_flag/toggle")
     assert r.status_code == 404
-    assert (ws / "recepcion" / "add_flag.py").exists()
+    assert enabled_of(ws, "recepcion", "add_flag") is True
 
 
 def test_req_px1_8_delete(ws):
@@ -352,14 +383,14 @@ def test_req_px1_8_delete(ws):
 
     r = client.delete("/fitit/hooks/add_flag")
     assert r.status_code == 204
-    assert not (ws / "gerente" / "add_flag.py").exists()
+    assert enabled_of(ws, "gerente", "add_flag") is None
     assert [h["name"] for h in client.get("/fitit/hooks").json()] == ["b_off"]
     r = client.get("/api/invoices")
     assert "x-fitit-hooks" not in r.headers
 
     r = client.delete("/fitit/hooks/b_off")
     assert r.status_code == 204
-    assert not (ws / "gerente" / "b_off.py.off").exists()
+    assert enabled_of(ws, "gerente", "b_off") is None
     assert client.get("/fitit/hooks").json() == []
 
 
@@ -367,7 +398,7 @@ def test_req_px1_8_delete_missing_404(ws):
     write_hook(ws, "recepcion", "add_flag", ADD_FLAG)
     client = core("gerente")
     assert client.delete("/fitit/hooks/add_flag").status_code == 404
-    assert (ws / "recepcion" / "add_flag.py").exists()
+    assert enabled_of(ws, "recepcion", "add_flag") is True
 
 
 # REQ-PX1-9 -----------------------------------------------------------------

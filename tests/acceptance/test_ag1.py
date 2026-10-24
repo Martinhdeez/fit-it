@@ -1,6 +1,10 @@
-"""Acceptance tests for AG1 (coding agent), written from docs/specs/agent.md and the 01-mvp plan only."""
+"""Acceptance tests for AG1 (coding agent), written from docs/specs/agent.md and the 01-mvp plan only.
+
+Iteration 02 (HS2): fixtures moved from hook files to the database (hook-contract v2, storage v1).
+"""
 
 import os
+import uuid
 
 import httpx
 import pytest
@@ -11,6 +15,14 @@ from starlette.websockets import WebSocketDisconnect
 
 from agent import agent
 from main import app
+
+# Until DB1 lands, psycopg and db are missing; keep the file collectable so tests fail, not error.
+try:
+    import psycopg
+
+    import db
+except ImportError:
+    psycopg = db = None
 
 DEMO_URL = os.environ.get("DEMO_URL", "http://demo:8001")
 
@@ -43,10 +55,25 @@ FINAL_TEXT = "Done: Friday invoices now have a 15% discount."
 
 
 @pytest.fixture
-def workspaces(tmp_path, monkeypatch):
+def database(monkeypatch):
+    base = os.environ["DATABASE_URL"]
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    url = f"{base}?options=-csearch_path%3D{schema}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.init()
+    yield url
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture
+def workspaces(database, monkeypatch):
+    """The test's own schema URL (iteration 01 used a temporary hook-file folder)."""
     monkeypatch.setenv("BASE_URL", DEMO_URL)
-    monkeypatch.setenv("WORKSPACES", str(tmp_path))
-    return tmp_path
+    monkeypatch.setenv("FITIT_AGENT_MESSAGES_PER_HOUR", "100000")
+    return database
 
 
 @pytest.fixture
@@ -117,8 +144,15 @@ def of_type(events, kind):
     return [e for e in events if e["type"] == kind]
 
 
-def saved_files(root):
-    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+def sql(url, query, *args):
+    with psycopg.connect(url) as conn:
+        return conn.execute(query, args).fetchall()
+
+
+def saved_files(url):
+    """Every stored hook as iteration 01's `<user>/<name>.py` path, from `hooks` and `hook_versions`."""
+    rows = sql(url, "SELECT user_id, name FROM hooks UNION SELECT user_id, name FROM hook_versions")
+    return sorted(f"{user}/{name}.py" for user, name in rows)
 
 
 # REQ-AG1-1
@@ -219,7 +253,7 @@ def test_req_ag1_5_valid_write_hook_saves_for_user_and_sends_hook_saved(gerente,
     (events,) = chat(gerente, script)
 
     assert saved_files(workspaces) == ["gerente/friday_discount.py"]
-    assert (workspaces / "gerente" / "friday_discount.py").read_text(encoding="utf-8") == VALID_CODE
+    assert sql(workspaces, "SELECT code FROM hooks WHERE user_id = 'gerente' AND name = 'friday_discount'") == [(VALID_CODE,)]
 
     saved = of_type(events, "hook_saved")
     assert len(saved) == 1
@@ -237,9 +271,8 @@ def test_req_ag1_5_valid_write_hook_saves_for_user_and_sends_hook_saved(gerente,
 
 def test_req_ag1_5_saved_hook_is_not_visible_to_another_user(gerente, workspaces):
     chat(gerente, Script([("write_hook", {"name": "friday_discount", "code": VALID_CODE})]))
-    assert (workspaces / "gerente" / "friday_discount.py").is_file()
-    assert not (workspaces / "dr_garcia").exists()
-    assert not (workspaces / "recepcion").exists()
+    assert sql(workspaces, "SELECT user_id, name FROM hooks") == [("gerente", "friday_discount")]
+    assert sql(workspaces, "SELECT 1 FROM hooks WHERE user_id IN ('dr_garcia', 'recepcion')") == []
 
 
 # REQ-AG1-6
