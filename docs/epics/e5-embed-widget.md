@@ -1,7 +1,8 @@
 # E5 — Embed widget
 
 - **Item:** EW1 · **Spec:** [embed-widget.md](../specs/embed-widget.md) · **Requirements:** REQ-EW1-1 … 5 (manual)
-- **Depends on:** AG1
+- **Owner:** frontend teammate (not built by agents)
+- **Depends on:** AG1 (the WebSocket protocol is frozen in the spec, so work can start now)
 
 ## Goal
 
