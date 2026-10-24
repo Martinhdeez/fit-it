@@ -331,3 +331,68 @@ def test_transcribe_rejects_large_audio(monkeypatch):
     monkeypatch.setattr(transcribe, "MAX_BYTES", 4)
     r = audio(b"12345")
     assert r.status_code == 413 and r.json() == {"error": "audio_too_large"}
+
+
+def test_cross_origin_writes_and_ws_are_rejected(monkeypatch):
+    c = client("gerente")
+    evil = {"origin": "https://evil.example"}
+    r = c.post("/fitit/hooks/x/toggle", headers=evil)
+    assert r.status_code == 403 and r.json() == {"error": "forbidden", "detail": "cross-origin request"}
+    assert c.delete("/fitit/history", headers=evil).status_code == 403
+    assert c.get("/fitit/hooks", headers=evil).status_code == 200  # GET is not checked
+    # Same origin (what the same-origin widget iframe sends) and no Origin both pass.
+    assert c.post("/fitit/hooks/x/toggle", headers={"origin": "http://testserver"}).status_code == 404
+    assert c.post("/fitit/hooks/x/toggle").status_code == 404
+
+    async def handle_ws(websocket, user, api, conversation):
+        await websocket.accept()
+        await websocket.send_json({"user": user})
+        await websocket.close()
+
+    monkeypatch.setitem(sys.modules, "agent", types.SimpleNamespace(handle_ws=handle_ws))
+    with c.websocket_connect("/fitit/ws", headers=evil) as ws:
+        with pytest.raises(WebSocketDisconnect) as e:
+            ws.receive_text()
+    assert e.value.code == 4403
+    with c.websocket_connect("/fitit/ws", headers={"origin": "http://testserver"}) as ws:
+        assert ws.receive_json() == {"user": "gerente"}
+
+
+def test_transcribe_caps_body_and_rate_limits(monkeypatch):
+    import agent
+    monkeypatch.setattr(main, "resolve_user", lambda cookie: "gerente")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(transcribe, "MAX_BYTES", 4)
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(200, json={"text": "ok"}))
+    agent.reset_rate_limits()
+    too_large = {"error": "audio_too_large"}
+    r = client().post("/fitit/transcribe", content=b"12345", headers={"content-length": "5"})
+    assert r.status_code == 413 and r.json() == too_large
+    r = client().post("/fitit/transcribe", content=iter([b"123", b"45"]))  # chunked, no Content-Length
+    assert r.status_code == 413 and r.json() == too_large
+    monkeypatch.setenv("FITIT_AGENT_MESSAGES_PER_HOUR", "1")
+    agent.reset_rate_limits()
+    assert audio(b"1234").json() == {"text": "ok"}
+    r = audio(b"1234")
+    assert r.status_code == 429 and r.json() == {"error": "rate_limited"}
+    agent.reset_rate_limits()
+
+
+def test_forwarding_headers_and_hooked_cache_control(monkeypatch):
+    seen = {}
+
+    def fake_request(method, url, *, headers, content):
+        seen.clear()
+        seen.update(headers)
+        return httpx.Response(200, json=[1], headers={"content-type": "application/json"})
+
+    monkeypatch.setattr(main.httpx, "request", fake_request)
+    monkeypatch.setattr(main, "resolve_user", lambda cookie: "gerente")
+    spoof = {"x-forwarded-for": "1.2.3.4", "x-forwarded-host": "a", "x-forwarded-proto": "https",
+             "forwarded": "for=1.2.3.4", "te": "trailers", "upgrade": "h2c"}
+    r = client().get("/api/invoices", headers=spoof)
+    assert "cache-control" not in r.headers
+    assert seen["x-forwarded-for"] == "testclient"
+    assert not {"x-forwarded-host", "x-forwarded-proto", "forwarded", "te", "upgrade"} & set(seen)
+    write("gerente", "h", hook("GET /api/invoices"))
+    assert client().get("/api/invoices").headers["cache-control"] == "private, no-store"
