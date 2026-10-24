@@ -79,6 +79,9 @@ scoped to this workspace. The Nginx template preserves the browser's Origin for
 Socket.IO instead of rewriting it to the internal site name; the upstream origin
 check remains enabled.
 
+Optional extra history for Fit-it charts: `docker cp` `seed_mock_data.py` and `seed_more_data.py` into the backend container and run `seed_more_data.py` there from `/home/frappe/frappe-bench/sites` with the bench Python.
+It adds `FITMORE-*` sales invoices (paid, unpaid, overdue), sales orders, quotations and payments for the 90 days up to today; re-running only fills days without them.
+
 ## Configuration and lifecycle
 
 | Host environment variable | Default / meaning |
