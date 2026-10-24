@@ -72,7 +72,7 @@ def test_checks_reject_unchanged_data():
         demo.get("/login", params={"user": c["user"]})
         get = lambda path: demo.get(path).json() if not path.startswith("/fitit/") else []
         before = get(c["route"])
-        if c["id"] in ("refuse_unsafe", "appointments_sorted"):  # the demo already sorts appointments by start
+        if c["id"] == "refuse_unsafe":
             c["check"](before, before, get=get)
         else:
             with pytest.raises(AssertionError):
