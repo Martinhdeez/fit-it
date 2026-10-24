@@ -277,6 +277,7 @@ export default function Page() {
           dictationRef.current = null;
           setDictating(false);
           if (error) setMicError(dictationError(error) ?? "");
+          if (error === "network" && navigator.onLine) setMicSupported(false);
           composerRef.current?.focus();
         },
       );

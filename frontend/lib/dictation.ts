@@ -73,7 +73,9 @@ export function dictationError(code: string): string | null {
     case "audio-capture":
       return "No microphone found.";
     case "network":
-      return "Dictation needs an internet connection.";
+      return navigator.onLine
+        ? "This browser cannot transcribe speech. Use Chrome, Edge or Safari to dictate."
+        : "Dictation needs an internet connection.";
     default:
       return "Dictation stopped. Try again.";
   }
