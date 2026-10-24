@@ -1,18 +1,16 @@
-# Proxy — v2
+# Proxy — v3
 
-The HTTP surface of the Fit-it core. Decisions: [ADR 0002](../adr/0002-reverse-proxy-in-front-of-unmodified-app.md), [ADR 0006](../adr/0006-identify-users-through-the-app-session.md), [ADR 0017](../adr/0017-postgres-as-core-storage.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md).
+The HTTP surface of the Fit-it core. Decisions: [ADR 0002](../adr/0002-reverse-proxy-in-front-of-unmodified-app.md), [ADR 0006](../adr/0006-identify-users-through-the-app-session.md), [ADR 0017](../adr/0017-postgres-as-core-storage.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md), [ADR 0022](../adr/0022-feature-marketplace.md), [ADR 0023](../adr/0023-features-run-as-the-subscriber.md).
 
-## Changes from v1
+## Changes from v2
 
-Iteration 02. The v1 text is in git history (`git show a76b931:docs/specs/proxy.md`).
+Iteration 03. The v2 text is in git history (`git show 6554dff:docs/specs/proxy.md`); the v1 text at `a76b931`.
 
 | # | Change | Breaking | Lands in |
 |---|---|---|---|
-| 1 | `DATABASE_URL` replaces `WORKSPACES`; the core applies the storage schema at startup. | Yes (configuration) | DB1 |
-| 2 | One `hook.applied` event per hook with that hook's own `ms` and `logs` (v1 sent the whole chain's values on every event). | No (now matches the trace spec) | HS2 |
-| 3 | New route `POST /fitit/hooks/{name}/undo`. | No (addition) | HS2 |
-| 4 | New route `DELETE /fitit/history`. | No (addition) | AG2 |
-| 5 | New variables `FITIT_HOOK_TIMEOUT_MS`, `FITIT_HOOK_MAX_BYTES`, `FITIT_AGENT_MESSAGES_PER_HOUR`; a breached hook limit fails closed like a raising hook. | No | SF1, AG2 |
+| 1 | The user's enabled marketplace subscriptions run before their own hooks, named `@<feature_id>` in `x-fitit-hooks`, `hook.applied`, `hook.failed`, `request.proxied` and the `502` body ("Applying hooks", "Virtual endpoints", "Errors"). Users with no subscriptions see exactly v2. | No | MK2 |
+| 2 | New routes `GET /fitit/features` and `/fitit/marketplace/...` ([marketplace spec](marketplace.md#http-routes)). | No (addition) | MK2 |
+| 3 | `DELETE /fitit/hooks/{name}` also unpublishes the hook's marketplace feature (through `hooks.delete_hook`). | No | MK2 |
 
 ## Configuration
 
@@ -45,10 +43,11 @@ For any path not under `/fitit/` and not under `/x/`:
 ## Applying hooks
 
 When the user is not anonymous, the app's response status is 2xx and its `content-type` is `application/json`:
-- every enabled hook of the user whose `ROUTE` matches the request method and path runs, in name order;
-- the response body is the last hook's output, serialized as JSON;
-- the response has the header `x-fitit-hooks` with the applied hook names, comma-separated in run order. Without matching hooks the header is absent;
-- each applied hook emits one `hook.applied` event with its own `route`, `ms` and `logs`, taken from the entries `run_hooks` returns ([hook contract](hook-contract.md#module-contract)).
+- first the user's enabled marketplace subscriptions whose pinned code's `ROUTE` matches run, in subscription order, as the user ([ADR 0023](../adr/0023-features-run-as-the-subscriber.md)): `hooks.run_hooks(..., features=marketplace.active(user))` ([hook contract](hook-contract.md#features));
+- then every enabled hook of the user whose `ROUTE` matches the request method and path runs, in name order;
+- the response body is the last output, serialized as JSON;
+- the response has the header `x-fitit-hooks` with the applied names, comma-separated in run order; a subscribed feature appears as `@<feature_id>` (for example `@3,@5,friday_discount`). Without matching hooks or features the header is absent;
+- each applied hook or feature emits one `hook.applied` event with its own `route`, `ms` and `logs`, taken from the entries `run_hooks` returns ([hook contract](hook-contract.md#module-contract)); for a feature `hook` is `@<feature_id>`.
 
 Anonymous requests, non-2xx responses and non-JSON responses are returned unchanged.
 
@@ -60,14 +59,14 @@ When the user is not anonymous and the response `content-type` is `text/html`, t
 
 `GET /x/<rest>`:
 - anonymous: `401` `{"error": "unauthenticated"}`;
-- no enabled hook of the user matches: `404` `{"error": "not_found"}`;
-- otherwise the matching hooks run with `data = None`, and the result is returned as `200` JSON with `x-fitit-hooks`.
+- no enabled hook and no enabled subscription of the user matches: `404` `{"error": "not_found"}`;
+- otherwise the matching features and hooks run with `data = None`, in the order of "Applying hooks", and the result is returned as `200` JSON with `x-fitit-hooks`.
 
 `/x/` requests are never forwarded to the app.
 
 ## Errors
 
-If a matching hook raises or breaches a limit (time, output size), the response is `502` with body `{"error": "hook_failed", "hook": "<name>", "detail": "<message>"}`. The app's original body is never returned.
+If a matching hook or subscribed feature raises, fails the guard when loaded, or breaches a limit (time, output size), the response is `502` with body `{"error": "hook_failed", "hook": "<name>", "detail": "<message>"}`, where `<name>` is `@<feature_id>` for a feature. The app's original body is never returned. The `hook.failed` event carries the same `hook` and the `route` of the failing code (`null` if it does not pass the guard).
 
 ## Core routes
 
@@ -79,7 +78,9 @@ All of them return `401` `{"error": "unauthenticated"}` for anonymous users, exc
 | `GET /fitit/ui/*` | The widget UI static export from `backend/static/ui/`, `index.html` for directories. No authentication needed. `404` `{"error": "not_found"}` if not built. |
 | `GET /fitit/hooks` | `200` `[{"name": str, "route": str, "enabled": bool, "code": str}]`, sorted by name |
 | `POST /fitit/hooks/{name}/toggle` | `200` `{"name": str, "enabled": bool}` with the new state; `404` if the hook does not exist |
-| `DELETE /fitit/hooks/{name}` | `204`; `404` if the hook does not exist |
+| `DELETE /fitit/hooks/{name}` | `204`; `404` if the hook does not exist. A feature published from this hook becomes unpublished ([marketplace spec](marketplace.md#rules), rule 3). |
 | `POST /fitit/hooks/{name}/undo` | Calls `hooks.undo_hook`. `200` `{"name": str, "version": int, "diff": str}` with the restored version; `404` `{"error": "not_found"}` if the hook does not exist; `409` `{"error": "undo_failed", "detail": str}` if there is nothing to restore. On `200` it emits `hook.restored`. |
 | `DELETE /fitit/history` | Calls `agent.clear_history(user)`: the user's chat history is gone for every connection ([agent spec](agent.md#history)). `204`. |
+| `GET /fitit/features` | "My features": the user's subscriptions and own hooks in run order, with `source` `subscribed` or `own` ([marketplace spec](marketplace.md#shapes)) |
+| `/fitit/marketplace/...` | Listing, detail, publish, unpublish, subscribe, toggle, unsubscribe, accept update, fork, report ([marketplace spec](marketplace.md#http-routes)) |
 | `WS /fitit/ws` | The agent session ([agent spec](agent.md)) |

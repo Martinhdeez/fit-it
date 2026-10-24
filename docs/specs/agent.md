@@ -1,19 +1,16 @@
-# Coding agent — v2
+# Coding agent — v3
 
-Turns a chat message into a validated hook. Decisions: [ADR 0007](../adr/0007-openapi-as-the-agent-catalog.md), [ADR 0008](../adr/0008-pydantic-ai-for-the-coding-agent.md), [ADR 0018](../adr/0018-hook-versions-and-undo.md), [ADR 0019](../adr/0019-persistent-chat-history.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md).
+Turns a chat message into a validated hook, or finds one already published in the marketplace. Decisions: [ADR 0007](../adr/0007-openapi-as-the-agent-catalog.md), [ADR 0008](../adr/0008-pydantic-ai-for-the-coding-agent.md), [ADR 0018](../adr/0018-hook-versions-and-undo.md), [ADR 0019](../adr/0019-persistent-chat-history.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md), [ADR 0022](../adr/0022-feature-marketplace.md).
 
-## Changes from v1
+## Changes from v2
 
-Iteration 02. The v1 text is in git history (`git show a76b931:docs/specs/agent.md`).
+Iteration 03. The v2 text is in git history (`git show 6554dff:docs/specs/agent.md`); the v1 text at `a76b931`.
 
 | # | Change | Breaking | Lands in |
 |---|---|---|---|
-| 1 | Conversation history is stored per user in Postgres and read at the start of every message, instead of kept per connection ("History"). New export `clear_history(user)`. | No for the protocol | CH1 |
-| 2 | `write_hook`'s dry run uses `hooks.dry_run`; it never writes anything for another user id. | No | AG2 |
-| 3 | The prompt is Pydantic AI `instructions` and lists the user's current hooks ("Instructions"). | No | AG2 |
-| 4 | New tool `undo_hook`. | No (addition) | AG2 |
-| 5 | Per-user message rate limit ("Rate limit"); new export `reset_rate_limits()`. | No below the limit | AG2 |
-| 6 | The `agent.answer` trace event carries `input_tokens` and `output_tokens`. | No (addition) | AG2 |
+| 1 | Seven marketplace tools ("Tools", "Marketplace tools"). | No (addition) | AG3 |
+| 2 | Instructions list the user's subscriptions and the marketplace rules: search before writing, confirm before subscribing or publishing ("Instructions"). | No | AG3 |
+| 3 | New WebSocket event `feature_changed`; a fork also sends `hook_saved` ("WebSocket protocol"). | No (addition) | AG3 |
 
 ## Module contract
 
@@ -36,6 +33,13 @@ Tests replace the model with `agent.override(model=FunctionModel(...))` or `Test
 | `write_hook` | `name: str`, `code: str` | See below |
 | `undo_hook` | `name: str` | See below |
 | `delete_hook` | `name: str` | Confirmation |
+| `search_features` | `query: str` | See "Marketplace tools" |
+| `publish_hook` | `name: str`, `title: str`, `description: str` | See "Marketplace tools" |
+| `unpublish_feature` | `feature_id: int` | See "Marketplace tools" |
+| `subscribe_feature` | `feature_id: int` | See "Marketplace tools" |
+| `unsubscribe_feature` | `feature_id: int` | See "Marketplace tools" |
+| `accept_update` | `feature_id: int` | See "Marketplace tools" |
+| `fork_feature` | `feature_id: int`, `name: str` | See "Marketplace tools" |
 
 `write_hook` runs, in order:
 1. the guard from the [hook contract](hook-contract.md);
@@ -47,12 +51,32 @@ If step 1 or 2 fails, nothing is written to the database, for any user, and the 
 
 `undo_hook` calls `hooks.undo_hook(user, name)`. On success it sends `hook_saved` with the hook's name, route and the undo's diff, emits the `hook.restored` trace event, and returns `restored version <n>`. If the hook does not exist it raises `ModelRetry`. If there is no earlier version it returns `nothing to undo: no earlier version` and changes nothing.
 
+## Marketplace tools
+
+Each calls the matching function of `backend/marketplace.py` as the connected user, with `api` the user's own `ctx.api` ([marketplace spec](marketplace.md#module-contract)); the rules and trace events are the module's. A `marketplace.Error` is **not** a `ModelRetry`: the tool returns the text `<error>: <detail>` (for example `dry_run_failed: KeyError: 'dni'`) so the model can explain it, and nothing changes.
+
+| Tool | Calls | Returns on success | Also sends |
+|---|---|---|---|
+| `search_features` | `search(user, query)` | Up to 10 entries, one line each: `@<id> <title> — <route> — <description> (<subscribers> subscribers, v<version>)`, with ` [mine]` or ` [subscribed]` appended when true; or `no features found` | — |
+| `publish_hook` | `publish(user, name, title, description)` | `published @<id> version <n>` | `feature_changed` `published` |
+| `unpublish_feature` | `unpublish(user, feature_id)` | `unpublished @<id>` | `feature_changed` `unpublished` |
+| `subscribe_feature` | `subscribe(user, feature_id, api)` | `subscribed to @<id> version <n>` | `feature_changed` `subscribed` |
+| `unsubscribe_feature` | `unsubscribe(user, feature_id)` | `unsubscribed from @<id>` | `feature_changed` `unsubscribed` |
+| `accept_update` | `accept_update(user, feature_id, api)` | `@<id> updated to version <n>` | `feature_changed` `updated` |
+| `fork_feature` | `fork(user, feature_id, api, name)` | `forked @<id> into <name>` | `hook_saved` (name, route, diff), then `feature_changed` `forked` |
+
 ## Instructions
 
 The prompt is passed as Pydantic AI `instructions`, so it is sent with every model request and never stored in the history. It contains:
 - the hook contract (shape, `ctx`, guard rules, allowed names, fail-closed behaviour);
 - the user's current hooks, one line per hook with its name, route and `enabled`/`disabled`, or the words `no hooks yet`, read when the message starts;
-- the rules: call `list_endpoints` and `get_endpoint` before writing; change only what the user asked; to change an existing behaviour, `read_hook` and `write_hook` with the **same name** instead of adding a second hook; one hook per request; use `undo_hook` when the user asks to undo or go back; answer in the user's language in at most three sentences.
+- the user's subscriptions, one line per subscription with `@<id>`, title, route, pinned version, `enabled`/`disabled` and `update available` when true, or the words `no subscriptions`, read when the message starts (`marketplace.subscriptions`);
+- the rules: call `list_endpoints` and `get_endpoint` before writing; change only what the user asked; to change an existing behaviour, `read_hook` and `write_hook` with the **same name** instead of adding a second hook; one hook per request; use `undo_hook` when the user asks to undo or go back; answer in the user's language in at most three sentences;
+- the marketplace rules:
+  - before writing a new hook, call `search_features`; if a feature does what the user asked, describe it and ask whether to subscribe; call `subscribe_feature` only after the user agrees in a later message;
+  - to publish, read the hook, draft a short title and description from its code, show them, and call `publish_hook` only after the user confirms in a later message;
+  - only the owner can change a feature; a subscriber who wants it changed can `fork_feature` it and then edit their own copy;
+  - a subscriber asking to get the new version of a feature calls `accept_update`.
 
 ## History
 
@@ -79,7 +103,8 @@ Server to client, in order, for each message:
 | Event | Fields | When |
 |---|---|---|
 | `tool` | `name`, `input` | Before each tool call |
-| `hook_saved` | `name`, `route`, `diff` | After a successful `write_hook` or `undo_hook`; `diff` is a unified diff against the previous code (empty previous for a new hook) |
+| `hook_saved` | `name`, `route`, `diff` | After a successful `write_hook`, `undo_hook` or `fork_feature`; `diff` is a unified diff against the previous code (empty previous for a new hook) |
+| `feature_changed` | `feature_id` (int), `action` (`published`, `unpublished`, `subscribed`, `unsubscribed`, `updated`, `forked`) | After a successful marketplace tool that changes something |
 | `hook_rejected` | `name`, `reason` | After a failed `write_hook` attempt |
 | `text` | `text` | The agent's final answer |
 | `error` | `message` | The turn failed (model error, retries exhausted, rate limit) |
