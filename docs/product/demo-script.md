@@ -13,4 +13,4 @@ Target length: 3 minutes. Base app: the demo clinic ([spec](../specs/demo-app.md
 | 7 | Presenter | Show the trace view | Every prompt, generated hook, validation and execution, with timings |
 | 8 | Presenter | Ask the agent for something that needs `import os` | The guard rejects the hook; nothing is saved |
 
-Fallback if the network or the model fails: hooks from a rehearsal are kept in `workspaces/` and steps 3, 6 and 7 still work offline from the model.
+Fallback if the network or the model fails: hooks from a rehearsal are kept in the core's Postgres volume and steps 3, 6 and 7 still work offline from the model.
