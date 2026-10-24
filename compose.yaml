@@ -1,6 +1,9 @@
 services:
   core:
-    build: ./backend
+    build:
+      context: ./backend
+      additional_contexts:
+        frontend: ./frontend
     ports:
       - "8000:8000"
     environment:
