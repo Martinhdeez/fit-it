@@ -2,7 +2,11 @@
 name = "fit-it"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "uvicorn"]
+dependencies = [
+    "fastapi",
+    "pydantic-ai-slim[anthropic]>=2.61.0",
+    "uvicorn",
+]
 
 [dependency-groups]
 dev = [
