@@ -93,15 +93,15 @@ def patients(user=Depends(current_user)):
         WHERE {VISIBLE} ORDER BY p.id""", doctor_id=user["doctor_id"])
 
 
-@app.get("/api/patients/{patient_id}", summary="Get one patient with diagnoses")
-def patient(patient_id: int, user=Depends(current_user)):
+@app.get("/api/patients/{id}", summary="Get one patient with diagnoses")
+def patient(id: int, user=Depends(current_user)):
     found = rows(f"""
         SELECT p.id, p.name, p.dni, p.phone, p.birth_date, p.doctor_id, d.name AS doctor
         FROM patients p JOIN doctors d ON d.id = p.doctor_id
-        WHERE p.id = :id AND {VISIBLE}""", id=patient_id, doctor_id=user["doctor_id"])
+        WHERE p.id = :id AND {VISIBLE}""", id=id, doctor_id=user["doctor_id"])
     if not found:
         raise HTTPException(404, "patient not found")
-    diagnoses = db.execute("SELECT description FROM diagnoses WHERE patient_id = ? ORDER BY id", (patient_id,))
+    diagnoses = db.execute("SELECT description FROM diagnoses WHERE patient_id = ? ORDER BY id", (id,))
     return {**found[0], "diagnoses": [r["description"] for r in diagnoses]}
 
 
