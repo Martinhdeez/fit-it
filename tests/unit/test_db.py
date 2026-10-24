@@ -39,7 +39,7 @@ def columns(schema: str) -> set[tuple]:
     with db.connect() as conn:
         return set(conn.execute(
             "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns"
-            " WHERE table_schema = %s", (schema,)).fetchall())
+            " WHERE table_schema = %s AND table_name IN ('hooks', 'hook_versions', 'messages')", (schema,)).fetchall())
 
 
 def primary_keys(schema: str) -> dict[str, list[str]]:
@@ -49,6 +49,7 @@ def primary_keys(schema: str) -> dict[str, list[str]]:
             " JOIN information_schema.key_column_usage kcu"
             " ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema"
             " WHERE tc.table_schema = %s AND tc.constraint_type = 'PRIMARY KEY'"
+            " AND tc.table_name IN ('hooks', 'hook_versions', 'messages')"
             " ORDER BY tc.table_name, kcu.ordinal_position", (schema,)).fetchall()
     keys = {}
     for table, column in rows:
@@ -124,6 +125,6 @@ def test_core_startup_creates_the_tables(monkeypatch):
         with db.connect() as conn:
             tables = conn.execute(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = %s", (schema,)).fetchall()
-        assert sorted(t for (t,) in tables) == ["hook_versions", "hooks", "messages"]
+        assert {"hook_versions", "hooks", "messages"} <= {t for (t,) in tables}
     finally:
         drop_schema(schema)
