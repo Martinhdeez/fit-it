@@ -1,10 +1,11 @@
 .PHONY: check up down
 
 # Runs every test under tests/ in the core image, with the demo service up.
-# ANTHROPIC_API_KEY is blanked so no test can reach a real model.
+# Model keys are blanked so no test can reach a real model.
 check:
 	docker compose run --rm --build --no-TTY \
-		-e ANTHROPIC_API_KEY= \
+		-e ANTHROPIC_API_KEY= -e OPENAI_API_KEY= -e GOOGLE_API_KEY= -e GEMINI_API_KEY= \
+		-e GROQ_API_KEY= -e MISTRAL_API_KEY= \
 		-e DEMO_URL=http://demo:8001 \
 		-e PYTHONPATH=/app \
 		-v ./tests:/tests:ro \

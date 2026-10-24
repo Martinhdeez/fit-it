@@ -199,5 +199,8 @@ async def handle_ws(websocket, user: str, api) -> None:
             await websocket.send_json({"type": "text", "text": run.result.output})
         except Exception as e:
             await flush()
-            await websocket.send_json({"type": "error", "message": str(e) or type(e).__name__})
+            message = str(e) or type(e).__name__
+            if message.startswith("Unknown model"):
+                message += ". Set FITIT_MODEL to a Pydantic AI 'provider:model' string."
+            await websocket.send_json({"type": "error", "message": message})
         await websocket.send_json({"type": "done"})

@@ -23,3 +23,4 @@ Rules:
 | [0011](0011-git-flow-and-conventional-commits.md) | Git Flow and Conventional Commits | Accepted |
 | [0012](0012-trace-seam-for-observability.md) | A single trace seam for observability | Accepted |
 | [0013](0013-developer-and-tester-agents.md) | Developer, tester and reviewer agents | Accepted |
+| [0014](0014-provider-agnostic-model.md) | Provider-agnostic model through `FITIT_MODEL` | Accepted |

@@ -153,6 +153,24 @@ def test_bad_client_message_gets_error_and_done():
         assert ws.receive_json() == {"type": "done"}
 
 
+@pytest.mark.parametrize("model, var", [("openai:gpt-5", "OPENAI_API_KEY"), ("nope:x", "FITIT_MODEL")])
+def test_unusable_model_gets_error_and_done(monkeypatch, model, var):
+    monkeypatch.setenv("FITIT_MODEL", model)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    app = FastAPI()
+
+    @app.websocket("/ws")
+    async def ws(websocket: WebSocket):
+        await agent.handle_ws(websocket, "alice", Api())
+
+    with TestClient(app).websocket_connect("/ws") as ws:
+        ws.send_json({"type": "message", "text": "hi"})
+        error = ws.receive_json()
+        assert error["type"] == "error" and var in error["message"]
+        assert ws.receive_json() == {"type": "done"}
+
+
 class DemoApi:
     def get(self, path):
         with urllib.request.urlopen(os.environ.get("DEMO_URL", "http://demo:8001") + path) as r:
