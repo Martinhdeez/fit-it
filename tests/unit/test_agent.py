@@ -224,6 +224,26 @@ def test_list_endpoints_on_demo_openapi():
     assert len(lines) == ops and all(re.match(r"^(GET|POST|PUT|PATCH|DELETE) /\S*: ", l) for l in lines)
 
 
+def test_list_endpoints_reads_openapi_file(monkeypatch, tmp_path):
+    spec = tmp_path / "openapi.json"
+    spec.write_text(json.dumps({"paths": {"/api/resource/Customer": {"get": {"summary": "List customers"}}}}))
+    monkeypatch.setenv("FITIT_OPENAPI_FILE", str(spec))
+    seen = []
+
+    def fn(messages, info):
+        seen.append(messages[-1].parts[-1])
+        if len(seen) == 1:
+            return ModelResponse(parts=[ToolCallPart("list_endpoints", {})])
+        return ModelResponse(parts=[TextPart("ok")])
+
+    class NoApi:
+        def get(self, path):
+            raise AssertionError(f"api called: {path}")
+
+    chat(FunctionModel(fn), "endpoints?", api=NoApi())
+    assert seen[1].content == "GET /api/resource/Customer: List customers"
+
+
 def test_main_route_end_to_end(monkeypatch):
     import main
     monkeypatch.setenv("BASE_URL", os.environ.get("DEMO_URL", "http://demo:8001"))

@@ -1,0 +1,355 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ERPNext sandbox",
+    "version": "16",
+    "description": "Frappe REST API of the ERPNext sandbox; list responses wrap rows in data; by default only name is returned unless fields is passed."
+  },
+  "paths": {
+    "/api/resource/Sales Invoice": {
+      "get": {
+        "summary": "List Sales Invoice records",
+        "parameters": [
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of field names, e.g. [\"name\",\"customer\",\"grand_total\",\"outstanding_amount\",\"posting_date\",\"status\"]. Without it only name is returned.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of filters, e.g. [[\"status\",\"=\",\"Overdue\"]].",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_page_length",
+            "in": "query",
+            "required": false,
+            "description": "Maximum rows to return (default 20, 0 for all).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "customer": {
+                            "type": "string"
+                          },
+                          "posting_date": {
+                            "type": "string"
+                          },
+                          "grand_total": {
+                            "type": "number"
+                          },
+                          "outstanding_amount": {
+                            "type": "number"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "due_date": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/resource/Customer": {
+      "get": {
+        "summary": "List Customer records",
+        "parameters": [
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of field names, e.g. [\"name\",\"customer\",\"grand_total\",\"outstanding_amount\",\"posting_date\",\"status\"]. Without it only name is returned.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of filters, e.g. [[\"status\",\"=\",\"Overdue\"]].",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_page_length",
+            "in": "query",
+            "required": false,
+            "description": "Maximum rows to return (default 20, 0 for all).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "customer_name": {
+                            "type": "string"
+                          },
+                          "customer_group": {
+                            "type": "string"
+                          },
+                          "territory": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/resource/Sales Order": {
+      "get": {
+        "summary": "List Sales Order records",
+        "parameters": [
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of field names, e.g. [\"name\",\"customer\",\"grand_total\",\"outstanding_amount\",\"posting_date\",\"status\"]. Without it only name is returned.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of filters, e.g. [[\"status\",\"=\",\"Overdue\"]].",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_page_length",
+            "in": "query",
+            "required": false,
+            "description": "Maximum rows to return (default 20, 0 for all).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "customer": {
+                            "type": "string"
+                          },
+                          "transaction_date": {
+                            "type": "string"
+                          },
+                          "grand_total": {
+                            "type": "number"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "delivery_date": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/resource/Item": {
+      "get": {
+        "summary": "List Item records",
+        "parameters": [
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of field names, e.g. [\"name\",\"customer\",\"grand_total\",\"outstanding_amount\",\"posting_date\",\"status\"]. Without it only name is returned.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "description": "JSON array of filters, e.g. [[\"status\",\"=\",\"Overdue\"]].",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit_page_length",
+            "in": "query",
+            "required": false,
+            "description": "Maximum rows to return (default 20, 0 for all).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "item_name": {
+                            "type": "string"
+                          },
+                          "item_group": {
+                            "type": "string"
+                          },
+                          "standard_rate": {
+                            "type": "number"
+                          },
+                          "stock_uom": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/resource/Sales Invoice/{name}": {
+      "get": {
+        "summary": "Get one Sales Invoice by name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "customer": {
+                          "type": "string"
+                        },
+                        "posting_date": {
+                          "type": "string"
+                        },
+                        "grand_total": {
+                          "type": "number"
+                        },
+                        "outstanding_amount": {
+                          "type": "number"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "due_date": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
