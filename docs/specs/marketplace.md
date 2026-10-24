@@ -1,6 +1,14 @@
-# Marketplace — v1
+# Marketplace — v2
 
-Publishing a hook as a **feature** that every signed-in user of the app can find, subscribe to, update, fork and report; and the "My features" list that shows a user everything that runs for them. Decisions: [ADR 0022](../adr/0022-feature-marketplace.md), [ADR 0023](../adr/0023-features-run-as-the-subscriber.md).
+Publishing a hook as a **feature** that every signed-in user of the app can find, subscribe to, update, fork and report; and the "My features" list that shows a user everything that runs for them. Decisions: [ADR 0022](../adr/0022-feature-marketplace.md), [ADR 0023](../adr/0023-features-run-as-the-subscriber.md), [ADR 0025](../adr/0025-hook-edits-under-parallel-conversations.md).
+
+## Changes from v1
+
+Iteration 04. The v1 text is in git history (`git show 5c656ce:docs/specs/marketplace.md`).
+
+| # | Change | Breaking | Lands in |
+|---|---|---|---|
+| 1 | Subscribe and accept update dry-run the feature inside the subscriber's whole chain for its route; a failure of another hook or feature in it refuses with `dry_run_failed` naming that hook ("Terms", Dry run). Fork keeps the v1 dry run. | No for v1 tests (stricter only when the subscriber has other hooks on the route) | HK1 |
 
 Tables: [storage spec](storage.md#marketplace-tables). How subscribed features run on requests: [hook contract](hook-contract.md#features) and [proxy spec](proxy.md#applying-hooks). Agent tools: [agent spec](agent.md#tools). Widget UI: [embed widget spec](embed-widget.md#marketplace-panel-and-my-features).
 
@@ -14,7 +22,7 @@ Tables: [storage spec](storage.md#marketplace-tables). How subscribed features r
 | Visible to a user | Published, or the user is its owner, or the user is subscribed to it. |
 | Subscription | A user's link to a feature, pinned to one `version`, `enabled` or not. A user has at most one subscription per feature and can never subscribe to their own feature. |
 | Feature name | `@<id>`, for example `@3`. Used wherever a hook name appears at run time (`x-fitit-hooks`, `HookError.hook`, trace events). |
-| Dry run | `hooks.dry_run(user, code, data, api)` as the subscribing user, with `data` chosen as the agent's `write_hook` does: for a `GET` route without `{param}` segments, the live `GET` response through `api`; for a `/x/` route, `None`; any other route skips the run (the guard still applies). Failing it means the guard rejects the code, `api.get` raises, or `dry_run` raises. |
+| Dry run | `hooks.dry_run(user, code, data, api)` as the subscribing user, with `data` chosen as the agent's `write_hook` does: for a `GET` route without `{param}` segments, the live `GET` response through `api`; for a `/x/` route, `None`; any other route skips the run (the guard still applies). Failing it means the guard rejects the code, `api.get` raises, or `dry_run` raises. **Subscribe and accept update** run the chain dry run of the [hook contract](hook-contract.md#chain-dry-run) with `name="@<feature_id>"` and `features=active(user)`: the feature takes its place among the user's enabled subscriptions (in place when already subscribed, last when new), followed by the user's enabled own hooks on that route. If another hook or feature of that chain fails, the reason (`str(e)`) is `<hook> failed: <detail>`. **Fork** dry-runs the code alone, as in v1. |
 
 ## Rules
 

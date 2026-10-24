@@ -1,16 +1,18 @@
-# Proxy — v3
+# Proxy — v4
 
-The HTTP surface of the Fit-it core. Decisions: [ADR 0002](../adr/0002-reverse-proxy-in-front-of-unmodified-app.md), [ADR 0006](../adr/0006-identify-users-through-the-app-session.md), [ADR 0017](../adr/0017-postgres-as-core-storage.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md), [ADR 0022](../adr/0022-feature-marketplace.md), [ADR 0023](../adr/0023-features-run-as-the-subscriber.md).
+The HTTP surface of the Fit-it core. Decisions: [ADR 0002](../adr/0002-reverse-proxy-in-front-of-unmodified-app.md), [ADR 0006](../adr/0006-identify-users-through-the-app-session.md), [ADR 0017](../adr/0017-postgres-as-core-storage.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md), [ADR 0022](../adr/0022-feature-marketplace.md), [ADR 0023](../adr/0023-features-run-as-the-subscriber.md), [ADR 0024](../adr/0024-parallel-conversations.md).
 
-## Changes from v2
+## Changes from v3
 
-Iteration 03. The v2 text is in git history (`git show 6554dff:docs/specs/proxy.md`); the v1 text at `a76b931`.
+Iteration 04. The v3 text is in git history (`git show 5c656ce:docs/specs/proxy.md`); v2 at `6554dff`, v1 at `a76b931`.
 
 | # | Change | Breaking | Lands in |
 |---|---|---|---|
-| 1 | The user's enabled marketplace subscriptions run before their own hooks, named `@<feature_id>` in `x-fitit-hooks`, `hook.applied`, `hook.failed`, `request.proxied` and the `502` body ("Applying hooks", "Virtual endpoints", "Errors"). Users with no subscriptions see exactly v2. | No | MK2 |
-| 2 | New routes `GET /fitit/features` and `/fitit/marketplace/...` ([marketplace spec](marketplace.md#http-routes)). | No (addition) | MK2 |
-| 3 | `DELETE /fitit/hooks/{name}` also unpublishes the hook's marketplace feature (through `hooks.delete_hook`). | No | MK2 |
+| 1 | `WS /fitit/ws` takes an optional `conversation` query parameter; an invalid one closes the socket with `4400` ("Core routes"). | No (absent means `default`) | CV1 |
+| 2 | New route `GET /fitit/conversations` ("Core routes"). | No (addition) | CV1 |
+| 3 | `DELETE /fitit/history` takes an optional `conversation` query parameter; without it, all of the user's conversations are cleared, as in v3 ("Core routes"). | No | CV1 |
+
+Changes in v3 (iteration 03): subscribed features in the chain, `GET /fitit/features`, `/fitit/marketplace/...`, `DELETE /fitit/hooks/{name}` unpublishes.
 
 ## Configuration
 
@@ -80,7 +82,8 @@ All of them return `401` `{"error": "unauthenticated"}` for anonymous users, exc
 | `POST /fitit/hooks/{name}/toggle` | `200` `{"name": str, "enabled": bool}` with the new state; `404` if the hook does not exist |
 | `DELETE /fitit/hooks/{name}` | `204`; `404` if the hook does not exist. A feature published from this hook becomes unpublished ([marketplace spec](marketplace.md#rules), rule 3). |
 | `POST /fitit/hooks/{name}/undo` | Calls `hooks.undo_hook`. `200` `{"name": str, "version": int, "diff": str}` with the restored version; `404` `{"error": "not_found"}` if the hook does not exist; `409` `{"error": "undo_failed", "detail": str}` if there is nothing to restore. On `200` it emits `hook.restored`. |
-| `DELETE /fitit/history` | Calls `agent.clear_history(user)`: the user's chat history is gone for every connection ([agent spec](agent.md#history)). `204`. |
+| `DELETE /fitit/history` | Without a query string, calls `agent.clear_history(user)`: every conversation of the user is gone for every connection ([agent spec](agent.md#history)). With `?conversation=<id>`, calls `agent.clear_history(user, id)`: only that conversation. `204`, also for an id with no rows. An id not matching `^[A-Za-z0-9_-]{1,64}$` (including an empty one) is `422` `{"error": "invalid", "detail": str}` and deletes nothing. |
+| `GET /fitit/conversations` | `200` `agent.list_conversations(user)`: `[{"id": str, "title": str, "last_activity": str, "turns": int}]`, latest activity first ([agent spec](agent.md#conversations)) |
 | `GET /fitit/features` | "My features": the user's subscriptions and own hooks in run order, with `source` `subscribed` or `own` ([marketplace spec](marketplace.md#shapes)) |
 | `/fitit/marketplace/...` | Listing, detail, publish, unpublish, subscribe, toggle, unsubscribe, accept update, fork, report ([marketplace spec](marketplace.md#http-routes)) |
-| `WS /fitit/ws` | The agent session ([agent spec](agent.md)) |
+| `WS /fitit/ws?conversation=<id>` | The agent session for one conversation ([agent spec](agent.md#websocket-protocol-ws-fititws)). Anonymous: closed with `4401`. Parameter absent: conversation `default`. Present but not matching `^[A-Za-z0-9_-]{1,64}$`: closed with `4400`. |
