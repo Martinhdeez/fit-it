@@ -236,6 +236,25 @@ function HBar({ data, color, unit = "" }: { data: { name: string; value: number 
   );
 }
 
+type Stats = { n: number; p50: number; p95: number; avg: number };
+function stats(evs: Ev[]): Stats {
+  const ms = evs.map((e) => Number(e.ms) || 0);
+  return { n: ms.length, p50: pct(ms, 50), p95: pct(ms, 95), avg: ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : 0 };
+}
+
+function PerfTile({ title, st, color }: { title: string; st: Stats; color: string }) {
+  return (
+    <div className="kpi perf-tile" style={{ borderTop: `3px solid ${color}` }}>
+      <span className="kpi-label">{title}</span>
+      <div className="perf-nums">
+        {([["requests", fmt(st.n), ""], ["p50", fmt(st.p50), "ms"], ["p95", fmt(st.p95), "ms"], ["avg", fmt(st.avg), "ms"]] as const).map(([k, v, u]) => (
+          <div key={k}><b>{st.n ? v : "–"}<small>{st.n && u}</small></b><span>{k}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- page ---------- */
 
 export default function Traceability() {
@@ -312,6 +331,12 @@ export default function Traceability() {
     const ms = req.map((e) => Number(e.ms) || 0);
     const hookMs = new Map<string, number[]>();
     for (const e of applied) hookMs.set(s(e.hook), [...(hookMs.get(s(e.hook)) ?? []), Number(e.ms) || 0]);
+    const plain = req.filter((e) => !hooksOf(e).length);
+    const perfGroups = topN(groupCounts, 8).map(({ name }) => {
+      const g = req.filter((e) => group(e) === name);
+      const o = stats(g.filter((e) => !hooksOf(e).length)), f = stats(g.filter((e) => hooksOf(e).length));
+      return { name, Original: o.n ? Math.round(o.avg) : null, "With Fit-it": f.n ? Math.round(f.avg) : null };
+    });
     const lifecycle = shown.filter((e) => ["hook.saved", "hook.rejected", "hook.restored", "hook.toggled", "hook.deleted"].includes(e.kind) || e.kind.startsWith("feature."));
     return {
       shown, req, applied, failed, series, step, lifecycle, tools,
@@ -326,6 +351,7 @@ export default function Traceability() {
       topHooks: topN(count(applied, (e) => s(e.hook)), 8),
       toolUse: topN(count(tools, (e) => s(e.tool)), 8),
       byGroup, showUser, hookedCount: hooked.length,
+      orig: stats(plain), fit: stats(hooked), perfGroups,
       reqFlows: hooked.flatMap((e) => hooksOf(e).map((h) => [...(showUser ? [who(e)] : []), grp(e), h, statusClass(Number(e.status))]))
         .concat(failed.map((e) => [...(showUser ? [who(e)] : []), s(e.route), s(e.hook), "failed"])),
       agentFlows: shown.filter((e) => ["agent.tool", "hook.saved", "hook.rejected"].includes(e.kind))
@@ -381,6 +407,40 @@ export default function Traceability() {
         <main>
           {tab === "Overview" && (
             <>
+              <section className="tcard perf">
+                <header><h2>Performance: original app vs Fit-it</h2></header>
+                <p className="muted perf-sub">Original = requests with no hook; Fit-it = requests where at least one hook or feature ran. Hook overhead = time inside the hooks.</p>
+                <div className="perf-tiles">
+                  <PerfTile title="Original app (no hooks)" st={d.orig} color={C.slate} />
+                  <PerfTile title="With Fit-it (hooks / features)" st={d.fit} color={C.violet} />
+                  {d.orig.n > 0 && d.fit.n > 0 && (() => {
+                    const delta = d.fit.avg - d.orig.avg, rel = d.orig.avg ? (delta / d.orig.avg) * 100 : 0;
+                    return <span className={`delta ${delta > 0 ? "up" : "down"}`} title="Average latency, Fit-it vs original">{delta >= 0 ? "+" : "−"}{fmt(Math.abs(delta))} ms, {rel >= 0 ? "+" : "−"}{Math.abs(Math.round(rel))}%</span>;
+                  })()}
+                </div>
+                <div className="grid">
+                  <div>
+                    <h3>Average ms by route group</h3>
+                    {d.perfGroups.length ? (
+                      <ResponsiveContainer width="100%" height={Math.max(160, d.perfGroups.length * 40 + 40)}>
+                        <BarChart data={d.perfGroups} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                          <CartesianGrid horizontal={false} stroke="var(--line)" />
+                          <XAxis type="number" {...axis} unit=" ms" />
+                          <YAxis type="category" dataKey="name" width={190} {...axis} tick={{ fill: "var(--ink-soft)", fontSize: 11 }} tickFormatter={(v: string) => clip(v, 30)} />
+                          <Tooltip {...tip} formatter={(v: number) => `${fmt(v)} ms`} />
+                          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                          <Bar dataKey="Original" fill={C.slate} radius={[0, 4, 4, 0]} barSize={10} isAnimationActive={false} />
+                          <Bar dataKey="With Fit-it" fill={C.violet} radius={[0, 4, 4, 0]} barSize={10} isAnimationActive={false} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : <p className="empty">No requests in this window yet.</p>}
+                  </div>
+                  <div>
+                    <h3>Hook overhead <span className="muted">average ms inside each hook / feature</span></h3>
+                    <HBar data={d.slowHooks} color={C.amber} unit=" ms" />
+                  </div>
+                </div>
+              </section>
               <div className="kpis">
                 <Kpi label="Requests" value={fmt(d.req.length)} trend={trend("requests")} spark={spark("requests")} />
                 <Kpi label="Error rate" value={d.errorRate.toFixed(1)} unit="%" trend={trend("errors")} spark={spark("errors")} color={C.red} bad={d.errorRate > 5} />
@@ -645,8 +705,18 @@ html, body { background: var(--bg, #f7f7f8); height: auto; }
 .trace tr.bad td.sum { color:var(--bad); }
 .trace tr.detail pre { margin:0; font-family:var(--mono); font-size:12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; overflow-x:auto; max-height:360px; }
 .trace .add { color:var(--good); } .trace .del { color:var(--bad); }
+.trace .perf { margin-bottom:16px; }
+.trace .perf-sub { margin:-4px 0 12px; }
+.trace .perf h3 { font-size:12px; font-weight:600; margin:4px 0 8px; color:var(--ink-soft); }
+.trace .perf-tiles { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)) auto; gap:12px; align-items:center; margin-bottom:16px; }
+.trace .perf-tile { padding-bottom:12px; }
+.trace .perf-nums { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; margin-top:6px; }
+.trace .perf-nums span { display:block; color:var(--muted); font-size:11px; }
+.trace .delta { font-weight:600; font-variant-numeric:tabular-nums; padding:6px 12px; border-radius:999px; white-space:nowrap;
+  background:color-mix(in srgb, var(--c) 14%, transparent); color:var(--c); --c:var(--good); }
+.trace .delta.up { --c:#e5a50a; }
 .trace .recharts-legend-item-text { color:var(--ink-soft) !important; }
-@media (max-width: 1000px) { .trace .kpis { grid-template-columns:repeat(2, minmax(0,1fr)); } .trace .grid { grid-template-columns:minmax(0,1fr); } }
+@media (max-width: 1000px) { .trace .perf-tiles { grid-template-columns:minmax(0,1fr); justify-items:start; } .trace .kpis { grid-template-columns:repeat(2, minmax(0,1fr)); } .trace .grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width: 600px) {
   .trace .top, .trace main { padding-left:16px; padding-right:16px; } .trace .tabs { padding:0 16px; }
   .trace .kpi b { font-size:18px; }
