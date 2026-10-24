@@ -92,6 +92,11 @@ export function reloadHostPage() {
   window.top?.location.reload();
 }
 
-export function tellHost(state: "open" | "close") {
-  window.parent.postMessage({ fitit: state }, "*");
+export type HostMessage =
+  | { fitit: "open" }
+  | { fitit: "close" }
+  | { fitit: "resize"; width: number; height: number };
+
+export function tellHost(message: HostMessage) {
+  window.parent.postMessage(message, "*");
 }

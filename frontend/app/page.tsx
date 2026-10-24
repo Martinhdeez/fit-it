@@ -28,6 +28,32 @@ type Item =
 
 const SIGN_IN = "Sign in to the app first";
 
+type Size = { width: number; height: number };
+
+const SIZE_KEY = "fitit-panel-size";
+const MIN_SIZE: Size = { width: 360, height: 420 };
+const STEP = 24;
+
+function clampSize(size: Size): Size {
+  const host = window.parent;
+  const clamp = (value: number, min: number, max: number) => Math.round(Math.min(Math.max(value, min), Math.max(min, max)));
+  return {
+    width: clamp(size.width, MIN_SIZE.width, host.innerWidth - 16),
+    height: clamp(size.height, MIN_SIZE.height, host.innerHeight - 16),
+  };
+}
+
+function storedSize(): Size | null {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(SIZE_KEY) ?? "null");
+    if (typeof value !== "object" || value === null) return null;
+    const { width, height } = value as Record<string, unknown>;
+    return typeof width === "number" && typeof height === "number" ? { width, height } : null;
+  } catch {
+    return null;
+  }
+}
+
 function diffLineClass(line: string): string | undefined {
   if (line.startsWith("+") && !line.startsWith("+++")) return "add";
   if (line.startsWith("-") && !line.startsWith("---")) return "del";
@@ -47,6 +73,8 @@ export default function Page() {
   const savedThisTurn = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; y: number; size: Size; last: Size } | null>(null);
+  const requestedSize = useRef<Size | null>(null);
 
   useEffect(() => () => socketRef.current?.close(), []);
 
@@ -119,7 +147,10 @@ export default function Page() {
   }
 
   function openPanel() {
-    tellHost("open");
+    tellHost({ fitit: "open" });
+    requestedSize.current = null;
+    const size = storedSize();
+    if (size) resizeTo(size, false);
     setOpen(true);
     void loadHooks();
     if (connection !== "signed-out") connect();
@@ -127,7 +158,45 @@ export default function Page() {
 
   function closePanel() {
     setOpen(false);
-    tellHost("close");
+    tellHost({ fitit: "close" });
+  }
+
+  // The host applies resize messages asynchronously, so the iframe's own size can lag behind.
+  function currentSize(): Size {
+    return requestedSize.current ?? { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  function resizeTo(size: Size, remember: boolean): Size {
+    const next = clampSize(size);
+    requestedSize.current = next;
+    tellHost({ fitit: "resize", ...next });
+    if (remember) localStorage.setItem(SIZE_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  function resetSize() {
+    localStorage.removeItem(SIZE_KEY);
+    requestedSize.current = null;
+    tellHost({ fitit: "open" });
+  }
+
+  function onResizeKey(event: React.KeyboardEvent) {
+    const { width, height } = currentSize();
+    const moves: Record<string, Size> = {
+      ArrowLeft: { width: width + STEP, height },
+      ArrowRight: { width: width - STEP, height },
+      ArrowUp: { width, height: height + STEP },
+      ArrowDown: { width, height: height - STEP },
+    };
+    if (event.key === "Home") {
+      event.preventDefault();
+      resetSize();
+      return;
+    }
+    const next = moves[event.key];
+    if (!next) return;
+    event.preventDefault();
+    resizeTo(next, true);
   }
 
   function send() {
@@ -185,6 +254,47 @@ export default function Page() {
           if (event.key === "Escape") closePanel();
         }}
       >
+        <button
+          type="button"
+          className="resize-handle"
+          aria-label="Resize panel"
+          title="Drag to resize. Arrow keys resize, Home or double-click resets."
+          onKeyDown={onResizeKey}
+          onDoubleClick={resetSize}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            try {
+              event.currentTarget.setPointerCapture(event.pointerId);
+            } catch {}
+            const size = currentSize();
+            dragRef.current = { x: event.screenX, y: event.screenY, size, last: size };
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag) return;
+            drag.last = resizeTo(
+              {
+                width: drag.size.width + drag.x - event.screenX,
+                height: drag.size.height + drag.y - event.screenY,
+              },
+              false,
+            );
+          }}
+          onPointerUp={() => {
+            const drag = dragRef.current;
+            if (!drag) return;
+            dragRef.current = null;
+            localStorage.setItem(SIZE_KEY, JSON.stringify(drag.last));
+          }}
+          onPointerCancel={() => {
+            dragRef.current = null;
+          }}
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M1 7l6-6M1 11L11 1" />
+          </svg>
+        </button>
         <header className="panel-header">
           <div>
             <h1>Fit-it</h1>
