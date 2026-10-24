@@ -31,8 +31,9 @@ SAFE_BUILTINS = {
 
 
 def _import(name, *args, **kwargs):
-    # datetime.strptime imports _strptime through the caller's builtins; hook code cannot name __import__ (guard).
-    if name != "_strptime":
+    # datetime.strptime and strftime import _strptime and time through the caller's builtins; hook code cannot
+    # name __import__ (guard), so only the C code of datetime reaches this.
+    if name not in ("_strptime", "time"):
         raise ImportError(f"import of {name} is not allowed")
     return __import__(name, *args, **kwargs)
 

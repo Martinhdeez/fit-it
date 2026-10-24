@@ -427,11 +427,11 @@ def test_chain_dry_run_failures(database):
 
 
 def test_strptime_works_in_hooks():
-    code = 'ROUTE = "GET /api/x"\ndef run(data, ctx):\n    return datetime.strptime("2026-10-24", "%Y-%m-%d").weekday()\n'
+    code = 'ROUTE = "GET /api/x"\ndef run(data, ctx):\n    return [datetime.strptime("2026-10-24", "%Y-%m-%d").weekday(), len(date.today().strftime("%Y-%m-%d"))]\n'
     hooks.check_code(code)
     scope = {"__builtins__": hooks.SAFE_BUILTINS, **hooks.SCOPE_VALUES}
     exec(compile(code, "<hook>", "exec"), scope)
-    assert scope["run"](None, None) == 5
+    assert scope["run"](None, None) == [5, 10]
     try:
         hooks.SAFE_BUILTINS["__import__"]("os")
         assert False, "os import allowed"
