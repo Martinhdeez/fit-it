@@ -11,6 +11,7 @@ Iteration 04. The v3 text is in git history (`git show 5c656ce:docs/specs/proxy.
 | 1 | `WS /fitit/ws` takes an optional `conversation` query parameter; an invalid one closes the socket with `4400` ("Core routes"). | No (absent means `default`) | CV1 |
 | 2 | New route `GET /fitit/conversations` ("Core routes"). | No (addition) | CV1 |
 | 3 | `DELETE /fitit/history` takes an optional `conversation` query parameter; without it, all of the user's conversations are cleared, as in v3 ("Core routes"). | No | CV1 |
+| 4 | New route `POST /fitit/transcribe`. The core sends the audio to OpenAI (`gpt-4o-mini-transcribe`) with `OPENAI_API_KEY`. | No (addition) | widget |
 
 Changes in v3 (iteration 03): subscribed features in the chain, `GET /fitit/features`, `/fitit/marketplace/...`, `DELETE /fitit/hooks/{name}` unpublishes.
 
@@ -87,3 +88,4 @@ All of them return `401` `{"error": "unauthenticated"}` for anonymous users, exc
 | `GET /fitit/features` | "My features": the user's subscriptions and own hooks in run order, with `source` `subscribed` or `own` ([marketplace spec](marketplace.md#shapes)) |
 | `/fitit/marketplace/...` | Listing, detail, publish, unpublish, subscribe, toggle, unsubscribe, accept update, fork, report ([marketplace spec](marketplace.md#http-routes)) |
 | `WS /fitit/ws?conversation=<id>` | The agent session for one conversation ([agent spec](agent.md#websocket-protocol-ws-fititws)). Anonymous: closed with `4401`. Parameter absent: conversation `default`. Present but not matching `^[A-Za-z0-9_-]{1,64}$`: closed with `4400`. |
+| `POST /fitit/transcribe` | Body is one audio clip (at most 10 MB) with an audio `content-type`. Optional query `language` is a BCP 47 tag; the core keeps the two-letter primary subtag. `200` `{"text": str}`. `400` `{"error": "empty_audio"}` when the body is empty. `413` `{"error": "audio_too_large"}` over 10 MB. `503` `{"error": "transcription_unavailable"}` when `OPENAI_API_KEY` is unset. `502` `{"error": "transcription_failed"}` when OpenAI fails. The key never leaves the core. |
