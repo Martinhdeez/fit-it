@@ -7,7 +7,7 @@ check:
 		-e ANTHROPIC_API_KEY= -e OPENAI_API_KEY= -e GOOGLE_API_KEY= -e GEMINI_API_KEY= \
 		-e GROQ_API_KEY= -e MISTRAL_API_KEY= \
 		-e DEMO_URL=http://demo:8001 \
-		-e OTEL_EXPORTER_OTLP_ENDPOINT= -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT= \
+		-e OTEL_EXPORTER_OTLP_ENDPOINT= -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT= -e FITIT_TRACE_DIR=/tmp/fitit-trace \
 		-e PYTHONPATH=/app:/evals \
 		-v ./tests:/tests:ro -v ./evals:/evals:ro \
 		core uv run --frozen pytest -p no:cacheprovider /tests
