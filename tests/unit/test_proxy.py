@@ -396,3 +396,25 @@ def test_forwarding_headers_and_hooked_cache_control(monkeypatch):
     assert not {"x-forwarded-host", "x-forwarded-proto", "forwarded", "te", "upgrade"} & set(seen)
     write("gerente", "h", hook("GET /api/invoices"))
     assert client().get("/api/invoices").headers["cache-control"] == "private, no-store"
+
+
+def test_resolve_user_configurable_path_field_and_anonymous(monkeypatch):
+    # ADR 0027: ERPNext answers {"message": "<user>"}, and "Guest" when signed out
+    monkeypatch.setenv("FITIT_USER_PATH", "/api/method/frappe.auth.get_logged_user")
+    monkeypatch.setenv("FITIT_USER_FIELD", "message")
+    monkeypatch.setenv("FITIT_ANONYMOUS_USERS", "Guest")
+    seen = []
+
+    def fake_get(url, headers):
+        seen.append(url)
+        return httpx.Response(200, json={"message": headers["cookie"]})
+
+    monkeypatch.setattr(main.httpx, "get", fake_get)
+    assert main.resolve_user("ana@fitit.test") == "ana@fitit.test"
+    assert main.resolve_user("Guest") is None
+    assert seen[0] == "http://demo:8001/api/method/frappe.auth.get_logged_user"
+
+
+def test_resolve_user_defaults_unchanged():
+    assert main.resolve_user("session=gerente") == "gerente"
+    assert main.resolve_user("") is None

@@ -136,6 +136,13 @@ Useful direct ERP endpoints: `/api/method/ping`, `/api/method/login`,
 `/api/method/frappe.auth.get_logged_user`, `/api/resource/Customer`,
 `/api/resource/Sales%20Invoice` and `/desk/selling/fitit-overview`.
 
+## Run behind Fit-it
+
+After bootstrap, from the repository root: `docker compose -p fitit-demo -f compose.yaml -f integrations/erpnext/compose.fitit.yaml up -d --build core`.
+Open **http://localhost:8000/desk/selling/fitit-overview** and log in as Administrator; the widget is injected there.
+The overlay sets `BASE_URL=http://frontend:8080`, `FITIT_USER_PATH=/api/method/frappe.auth.get_logged_user`, `FITIT_USER_FIELD=message` and `FITIT_ANONYMOUS_USERS=Guest`.
+Limit: Socket.IO realtime is not proxied (no websocket passthrough); the desk works without live updates.
+
 ## Share and reproduce
 
 Share this Git branch/PR, or a ZIP containing only this directory. The source
