@@ -15,6 +15,7 @@ import db
 import hooks
 import main
 import trace
+import transcribe
 
 
 def hook(route, body="return data"):
@@ -264,3 +265,69 @@ def test_subscribed_features_run_first_as_the_subscriber(env, database):
     assert r.status_code == 502 and r.json()["hook"] == f"@{a}"
     assert [e["route"] for e in env if e["kind"] == "hook.failed"][-1] is None
     assert client("gerente").get("/x/who").json() == ["gerente", "gerente"]
+
+
+def audio(body=b"audio-bytes", language="es-ES"):
+    return client().post("/fitit/transcribe", content=body, headers={"content-type": "audio/webm"}, params={"language": language})
+
+
+def test_transcribe_anonymous():
+    r = audio()
+    assert r.status_code == 401 and r.json() == {"error": "unauthenticated"}
+
+
+def test_transcribe_returns_openai_text(monkeypatch):
+    monkeypatch.setattr(main, "resolve_user", lambda cookie: "gerente")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+    seen = {}
+
+    def fake_post(url, *, headers, files, data, timeout):
+        seen["url"] = url
+        seen["auth"] = headers["Authorization"]
+        seen["model"] = data["model"]
+        seen["language"] = data["language"]
+        seen["type"] = files["file"][2]
+        seen["audio"] = files["file"][1]
+        seen["timeout"] = timeout
+        return httpx.Response(200, json={"text": " hide the phones "})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    r = audio()
+    assert r.status_code == 200 and r.json() == {"text": "hide the phones"}
+    assert seen == {
+        "url": "https://example.test/v1/audio/transcriptions",
+        "auth": "Bearer sk-test",
+        "model": transcribe.MODEL,
+        "language": "es",
+        "type": "audio/webm",
+        "audio": b"audio-bytes",
+        "timeout": 60,
+    }
+    assert transcribe.MODEL == "gpt-4o-mini-transcribe"
+
+
+def test_transcribe_without_key(monkeypatch):
+    monkeypatch.setattr(main, "resolve_user", lambda cookie: "gerente")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    assert audio().status_code == 503 and audio().json() == {"error": "transcription_unavailable"}
+
+
+def test_transcribe_openai_error(monkeypatch):
+    monkeypatch.setattr(main, "resolve_user", lambda cookie: "gerente")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    def fail(*args, **kwargs):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx, "post", fail)
+    r = audio()
+    assert r.status_code == 502 and r.json() == {"error": "transcription_failed"}
+
+
+def test_transcribe_rejects_large_audio(monkeypatch):
+    monkeypatch.setattr(main, "resolve_user", lambda cookie: "gerente")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setattr(transcribe, "MAX_BYTES", 4)
+    r = audio(b"12345")
+    assert r.status_code == 413 and r.json() == {"error": "audio_too_large"}
