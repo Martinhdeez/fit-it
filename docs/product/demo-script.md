@@ -21,6 +21,7 @@ The session is a cookie, so each user needs a separate browser profile (or one n
 Checks:
 - http://localhost:8000/fitit/ui/ shows the chat. A `404` means the widget UI is not built into `backend/static/ui/`.
 - Rehearse once, then run `docker compose down -v` (it deletes every hook, feature and chat) and `docker compose up --build` again.
+- `docker compose down -v` also clears the audit journal (`fitit-trace` volume) and Jaeger, so the trace view starts empty. Rehearse with `docker compose run --rm --no-deps core uv run python trace_view.py --user dr_garcia` to check that the fallback hook's events appear.
 - Backup for the fallback: as `dr_garcia`, ask for the Friday discount and leave it. Keep that window open but out of view.
 - "My features" is empty for `gerente` and `recepcion`. Lay out `gerente` on the left and `recepcion` on the right.
 
@@ -38,7 +39,7 @@ Checks:
 | 8 | 3:15 | `recepcion` | On the feature, **Make a copy**, then chat: "Make that discount 10% instead" | "Only the owner changes a feature. Lucía forks it into her own hook and edits that copy. Marta's feature is untouched." | The subscription is replaced by an own hook (**Mine**); the diff changes the rate to 10%. Marta's window still shows 15%. |
 | 9 | 3:45 | `gerente` | Open a second chat window. In one: "Give me a page at /x/debt-per-doctor with the total unpaid debt per doctor". In the other, at once: "Show patient names in capital letters" | "Each chat window is its own conversation, and they run in parallel. If two of them touch the same hook, the second one rereads it instead of overwriting." | Both windows stream at the same time. Patient names in capitals; http://localhost:8000/x/debt-per-doctor returns the totals, a page the app never had. |
 | 10 | 4:25 | Presenter | Say it | "Any model provider: one variable, `FITIT_MODEL`. Today it is `openai:gpt-5-mini`. We test the agent with 17 real-model cases, checked by the data they produce: 16 of 17 passed; the failure was the fork, fixed since." | — |
-| 11 | 4:45 | Presenter | Hand over to Álvaro | "Every prompt, tool call, saved or rejected hook and hook run is a trace event, per user." | Álvaro's trace view. |
+| 11 | 4:45 | Presenter | Hand over to Álvaro | "Every prompt, tool call, saved or rejected hook and hook run is a trace event, per user." | `docker compose run --rm --no-deps core uv run python trace_view.py --user gerente`: prompts, tool calls, saved and rejected hooks, in order. Then Jaeger at http://127.0.0.1:16686, service `fit-it-core`: the timings of the same requests, with ids shown as `{id}` and no prompt text. |
 
 ## If the model is slow or fails
 
