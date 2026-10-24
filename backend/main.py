@@ -136,6 +136,32 @@ if UI.is_dir():  # not built: /fitit/ui/ falls through to the core-namespace 404
     app.mount("/fitit/ui", StaticFiles(directory=UI, html=True))
 
 
+@app.get("/fitit/trace/events")
+def trace_events(request: Request, after: str = "0", limit: str = "500"):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    try:
+        after_n, limit_n = int(after), int(limit)
+        if after_n < 0 or not 0 < limit_n <= 1000:
+            raise ValueError("after must be >= 0 and limit in 1..1000")
+    except ValueError as e:
+        return JSONResponse({"error": "invalid", "detail": str(e)}, 422)
+    records = trace.read_events(after=after_n, limit=limit_n)
+    admin = user in os.environ.get("FITIT_TRACE_ADMINS", "").split(",")
+    return {"events": [r for r in records if admin or r.get("user") == user],
+            "next": records[-1]["seq"] if records else after_n, "admin": admin}
+
+
+@app.get("/traceability")
+@app.get("/traceability/")
+def traceability():
+    for page in (UI / "traceability" / "index.html", UI / "traceability.html"):
+        if page.is_file():
+            return Response(page.read_bytes(), media_type="text/html")
+    return not_found()
+
+
 @app.get("/fitit/hooks")
 def list_hooks(request: Request):
     user = resolve_user(request.headers.get("cookie", ""))
