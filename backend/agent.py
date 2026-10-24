@@ -26,6 +26,10 @@ How to work:
 - Change only what the user asked for. One hook per request.
 - To change an existing behaviour, read_hook it, then write_hook with the SAME name and the new code. Never add a
   second hook for something an existing hook already does.
+- When one of the user's hooks already runs on the same route as the change, read_hook it and extend it with
+  write_hook under its name, instead of adding a new hook, unless the user asks for a separate one.
+- If write_hook is rejected with conflict:, the hook changed since you saw it: read_hook it again and reapply your
+  change.
 - write_hook validates and dry-runs the code. If it is rejected, read the reason, fix the code and call it again.
 - When the user asks to undo or go back, call undo_hook with the hook's name.
 - Answer in the user's language, in at most three sentences.
@@ -35,8 +39,9 @@ Marketplace. Other users of the app publish their hooks as features (named @<id>
   to subscribe. Call subscribe_feature only after the user agrees in a later message.
 - To publish a hook, read_hook it, draft a short title and description from its code, show them to the user, and call
   publish_hook only after the user confirms in a later message. unpublish_feature hides it again.
-- Only the owner can change a feature. A subscriber who wants it changed can fork_feature it into their own hook and
-  then edit that copy. unsubscribe_feature removes a subscription.
+- When the user asks to copy (fork) a feature into their own hooks, call search_features and then fork_feature right
+  away: no subscription or confirmation needed. Name the hook in snake_case after the feature. To change a feature
+  they subscribe to, a subscriber forks it too, then edits the copy. unsubscribe_feature removes a subscription.
 - When a subscriber asks for the new version of a feature, call accept_update.
 
 Hook contract. A hook is one Python file with exactly this shape:
@@ -78,6 +83,7 @@ class Deps:
     rejections: int = 0
     hooks: str = ""  # the user's hooks when the message started, for the instructions
     subscriptions: str = ""  # likewise, the user's subscriptions
+    versions: dict = field(default_factory=dict)  # name -> hook version this turn last saw; missing is 0 (ADR 0025)
 
 
 # ponytail: in memory, per process; Postgres-backed if the core scales out (plan 02, Next)
@@ -210,9 +216,10 @@ def list_hooks(ctx: RunContext[Deps]) -> list[dict]:
 def read_hook(ctx: RunContext[Deps], name: str) -> str:
     """Return the source code of one of the user's hooks."""
     try:
-        return hooks.read_hook(ctx.deps.user, name)
+        code, ctx.deps.versions[name] = hooks.read_hook_version(ctx.deps.user, name)
     except KeyError:
         raise ModelRetry(f"no hook named '{name}'")
+    return code
 
 
 @agent.tool
@@ -222,6 +229,7 @@ def delete_hook(ctx: RunContext[Deps], name: str) -> str:
         hooks.delete_hook(ctx.deps.user, name)
     except KeyError:
         raise ModelRetry(f"no hook named '{name}'")
+    ctx.deps.versions[name] = 0
     trace.emit("hook.deleted", user=ctx.deps.user, hook=name)
     return f"deleted {name}"
 
@@ -236,6 +244,7 @@ def undo_hook(ctx: RunContext[Deps], name: str) -> str:
         raise ModelRetry(f"no hook named '{name}'")
     except ValueError:
         return "nothing to undo: no earlier version"
+    deps.versions[name] = version
     route = next(h["route"] for h in hooks.list_hooks(deps.user) if h["name"] == name)
     deps.events.append({"type": "hook_saved", "name": name, "route": route, "diff": diff})
     trace.emit("hook.restored", user=deps.user, hook=name, version=version)
@@ -243,12 +252,17 @@ def undo_hook(ctx: RunContext[Deps], name: str) -> str:
 
 
 def dry_run(deps: Deps, name: str, code: str, method: str, path: str):
-    """Run the candidate hook the way the runtime does. Returns its output, or None if the route is skipped."""
+    """Run the candidate inside the user's chain for its route. Returns the chain's output, or None if skipped."""
     virtual = path.startswith("/x/")
     if not virtual and (method != "GET" or "{" in path):
         return None
     data = None if virtual else deps.api.get(path)
-    return hooks.dry_run(deps.user, code, data, deps.api)
+    try:
+        return hooks.dry_run(deps.user, code, data, deps.api, name=name, features=marketplace.active(deps.user))
+    except hooks.HookError as e:
+        if e.hook is None:
+            raise
+        raise ValueError(f"{e.hook} failed: {e}")
 
 
 @agent.tool(retries=MAX_REJECTIONS + 1)
@@ -258,15 +272,22 @@ def write_hook(ctx: RunContext[Deps], name: str, code: str) -> str:
     try:
         method, path = hooks.check_code(code)
         preview = dry_run(deps, name, code, method, path)
-        diff = hooks.save_hook(deps.user, name, code)
+        diff = hooks.save_hook(deps.user, name, code, expected_version=deps.versions.get(name, 0))
     except Exception as e:
         reason = str(e)
+        retry = reason + (". Call read_hook and apply your change again." if isinstance(e, hooks.Conflict) else "")
         deps.rejections += 1
         deps.events.append({"type": "hook_rejected", "name": name, "reason": reason})
         trace.emit("hook.rejected", user=deps.user, hook=name, reason=reason)
         if deps.rejections >= MAX_REJECTIONS:
             raise TooManyRejections(f"hook rejected {MAX_REJECTIONS} times, last reason: {reason}")
-        raise ModelRetry(reason)
+        raise ModelRetry(retry)
+    try:  # the saved version; if another turn saved again in between, keep the stale one so the next write conflicts
+        current, version = hooks.read_hook_version(deps.user, name)
+        if current == code:
+            deps.versions[name] = version
+    except KeyError:
+        pass
     route = f"{method} {path}"
     deps.events.append({"type": "hook_saved", "name": name, "route": route, "diff": diff})
     trace.emit("hook.saved", user=deps.user, hook=name, route=route, diff=diff)
@@ -350,8 +371,9 @@ def accept_update(ctx: RunContext[Deps], feature_id: int) -> str:
 
 
 @agent.tool
-def fork_feature(ctx: RunContext[Deps], feature_id: int, name: str) -> str:
-    """Copy a feature's code into a new hook of the user named `name`, ending any subscription to it."""
+def fork_feature(ctx: RunContext[Deps], feature_id: int, name: str | None = None) -> str:
+    """Copy a feature's code into a new hook of the user named `name` (default: the feature's hook name), ending any
+    subscription to it."""
     deps = ctx.deps
     try:
         h = marketplace.fork(deps.user, feature_id, deps.api, name)
@@ -395,6 +417,7 @@ async def handle_ws(websocket, user: str, api, conversation: str = "default") ->
         _busy.add(key)  # no await since the check above, so check-and-add is atomic on the event loop
         try:
             history = load_history(user, conversation)  # every message: nothing cached (ADR 0019)
+            deps.versions = hooks.versions(user)  # the versions this message starts from (ADR 0025)
             async with agent.iter(text, deps=deps, message_history=history, model=model_name()) as run:
                 async for node in run:
                     if not isinstance(node, CallToolsNode):
