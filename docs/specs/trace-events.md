@@ -71,3 +71,11 @@ Additive; nothing above changes. **To be confirmed by the traceability owner (Á
 | `hook.rejected` (new reasons) | `reason` may start with `conflict:` (the hook changed since the agent read it) or name another hook of the chain (`<hook> failed: ...`) | As before | AG4 |
 
 A message refused as busy emits `agent.message` and nothing else.
+
+## Minor additions (paired latency)
+
+Additive; nothing above changes. `ms` stays the total.
+
+| Kind | Fields | Emitted when |
+|---|---|---|
+| `request.proxied` (new fields) | `upstream_ms` (the call to the app; `0` for `/x/` virtual routes), `hooks_ms` (running the user's hooks and features; `0` when none matched) | As before |

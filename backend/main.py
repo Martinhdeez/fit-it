@@ -115,9 +115,14 @@ def apply_hooks(user, cookie, method, path, data, request=None):
     return JSONResponse(result, headers={"x-fitit-hooks": ",".join(names), "cache-control": "private, no-store"}), names
 
 
-def finish(response: Response, user, method, path, start, applied) -> Response:
+def ms_since(t: float) -> float:
+    return round((time.perf_counter() - t) * 1000, 1)
+
+
+def finish(response: Response, user, method, path, start, applied, upstream_ms=0.0, hooks_ms=0.0) -> Response:
+    """`upstream_ms`: the call to the app (0 for `/x/` routes); `hooks_ms`: running hooks and features."""
     trace.emit("request.proxied", user=user, method=method, path=path, status=response.status_code,
-               ms=round((time.perf_counter() - start) * 1000, 1), hooks=applied)
+               ms=ms_since(start), hooks=applied, upstream_ms=upstream_ms, hooks_ms=hooks_ms)
     return response
 
 
@@ -442,13 +447,15 @@ def virtual(request: Request):
     method, path = request.method, request.url.path
     cookie = request.headers.get("cookie", "")
     user = resolve_user(cookie)
-    applied = []
+    applied, hooks_ms = [], 0.0
     if not user:
         response = unauthenticated()
     else:
+        t = time.perf_counter()
         response, applied = apply_hooks(user, cookie, method, path, None)
+        hooks_ms = ms_since(t)
         response = response or not_found()
-    return finish(response, user, method, path, start, applied)
+    return finish(response, user, method, path, start, applied, hooks_ms=hooks_ms)
 
 
 @app.api_route("/{rest:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
@@ -468,16 +475,20 @@ def forward(request: Request, body: bytes) -> Response:
     headers = [(k, v) for k, v in request.headers.items() if k not in DROP_REQUEST]
     if request.client:
         headers.append(("x-forwarded-for", request.client.host))
+    t = time.perf_counter()
     up = httpx.request(method, url, headers=headers, content=body)
+    upstream_ms = ms_since(t)
 
-    applied = []
+    applied, hooks_ms = [], 0.0
     content = up.content
     content_type = up.headers.get("content-type", "")
     if user and 200 <= up.status_code < 300 and content_type.split(";")[0].strip() == "application/json":
         info = request_info(method, path, request.url.query, body)
+        t = time.perf_counter()
         hooked, applied = apply_hooks(user, cookie, method, path, up.json(), info)
+        hooks_ms = ms_since(t)
         if hooked:
-            return finish(hooked, user, method, path, start, applied)
+            return finish(hooked, user, method, path, start, applied, upstream_ms, hooks_ms)
     if user and content_type.startswith("text/html"):
         i = content.rfind(b"</body>")
         content = content[:i] + SCRIPT + content[i:] if i >= 0 else content + SCRIPT
@@ -486,4 +497,4 @@ def forward(request: Request, body: bytes) -> Response:
     for k, v in up.headers.multi_items():
         if k.lower() not in DROP_RESPONSE:
             response.headers.append(k, v)
-    return finish(response, user, method, path, start, applied)
+    return finish(response, user, method, path, start, applied, upstream_ms, hooks_ms)

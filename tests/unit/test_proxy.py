@@ -91,7 +91,10 @@ def test_hook_applies_only_to_its_user(env):
     assert applied[1]["logs"] == ["bye"] and all(e["ms"] >= 0 for e in applied)
     proxied = [e for e in env if e["kind"] == "request.proxied"]
     assert proxied[-1] == {"kind": "request.proxied", "user": "gerente", "method": "GET", "path": "/api/invoices",
-                           "status": 200, "ms": proxied[-1]["ms"], "hooks": ["a_count", "b_wrap"]}
+                           "status": 200, "ms": proxied[-1]["ms"], "hooks": ["a_count", "b_wrap"],
+                           "upstream_ms": proxied[-1]["upstream_ms"], "hooks_ms": proxied[-1]["hooks_ms"]}
+    assert proxied[-1]["upstream_ms"] > 0 and proxied[-1]["hooks_ms"] >= 0
+    assert proxied[-1]["ms"] >= proxied[-1]["upstream_ms"]
 
     r = client("recepcion").get("/api/invoices")
     assert "x-fitit-hooks" not in r.headers and isinstance(r.json(), list)
