@@ -437,3 +437,10 @@ def test_strptime_works_in_hooks():
         assert False, "os import allowed"
     except ImportError:
         pass
+
+
+def test_hook_reads_ctx_request():
+    code = hook("POST /m", "return data * 2 if ctx.request.get('form', {}).get('doc', {}).get('name') == 'A' else data")
+    hooks.save_hook("u1", "double_a", code)
+    run = lambda req: hooks.run_hooks("u1", "POST", "/m", 3, hooks.Ctx("u1", Api(), req))[0]
+    assert (run({"form": {"doc": {"name": "A"}}}), run({"form": {"doc": {"name": "B"}}}), run(None)) == (6, 3, 3)

@@ -3,7 +3,7 @@ import json
 import os
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -80,12 +80,29 @@ def route_of(name: str, entries: list[dict]):
         return None
 
 
-def apply_hooks(user, cookie, method, path, data):
+def request_info(method: str, path: str, query: str, body: bytes) -> dict:
+    """`ctx.request`: the proxied request, with a JSON or form body parsed and JSON-looking form values decoded."""
+    form = {}
+    try:
+        form = json.loads(body) if body[:1] in (b"{", b"[") else dict(parse_qsl(body.decode()))
+        if isinstance(form, dict):
+            for k, v in form.items():
+                if isinstance(v, str) and v[:1] in ("{", "["):
+                    try:
+                        form[k] = json.loads(v)
+                    except ValueError:
+                        pass
+    except (ValueError, UnicodeDecodeError):
+        form = {}
+    return {"method": method, "path": path, "query": dict(parse_qsl(query)), "form": form}
+
+
+def apply_hooks(user, cookie, method, path, data, request=None):
     """Runs the user's subscribed features, then their own hooks (ADR 0023).
     Returns (response, names): the hooked JSON, a 502 on HookError, or None if nothing matched."""
     features = marketplace.active(user)
     try:
-        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie)), features)
+        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie), request), features)
     except hooks.HookError as e:
         route = route_of(e.hook, features if e.hook.startswith("@") else hooks.list_hooks(user))
         trace.emit("hook.failed", user=user, hook=e.hook, route=route, error=str(e))
@@ -439,7 +456,8 @@ def forward(request: Request, body: bytes) -> Response:
     content = up.content
     content_type = up.headers.get("content-type", "")
     if user and 200 <= up.status_code < 300 and content_type.split(";")[0].strip() == "application/json":
-        hooked, applied = apply_hooks(user, cookie, method, path, up.json())
+        info = request_info(method, path, request.url.query, body)
+        hooked, applied = apply_hooks(user, cookie, method, path, up.json(), info)
         if hooked:
             return finish(hooked, user, method, path, start, applied)
     if user and content_type.startswith("text/html"):

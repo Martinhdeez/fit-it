@@ -418,3 +418,12 @@ def test_resolve_user_configurable_path_field_and_anonymous(monkeypatch):
 def test_resolve_user_defaults_unchanged():
     assert main.resolve_user("session=gerente") == "gerente"
     assert main.resolve_user("") is None
+
+
+def test_request_info_parses_form_and_json_bodies():
+    form = main.request_info("POST", "/api/m", "a=1", b"doc=%7B%22name%22%3A%22FITIT+Sales+revenue%22%7D&x=%5Bbad")
+    assert form == {"method": "POST", "path": "/api/m", "query": {"a": "1"},
+                    "form": {"doc": {"name": "FITIT Sales revenue"}, "x": "[bad"}}
+    assert main.request_info("POST", "/p", "", b'{"chart_name": "C"}')["form"] == {"chart_name": "C"}
+    assert main.request_info("GET", "/p", "", b"")["form"] == {}
+    assert main.request_info("POST", "/p", "", b"\xff")["form"] == {}

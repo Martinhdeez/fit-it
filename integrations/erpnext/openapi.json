@@ -350,6 +350,154 @@
           }
         }
       }
+    },
+    "/api/method/frappe.desk.doctype.number_card.number_card.get_result": {
+      "post": {
+        "summary": "FITIT Overview number card value (one call per card)",
+        "description": "Called by the FITIT Overview workspace (/desk/selling/fitit-overview). Request body is form-encoded; hooks read it as ctx.request['form'] with JSON values already decoded. Fields: doc (the Number Card: name, label, function Sum|Count, document_type, aggregate_function_based_on, filters_json), filters (list of [doctype, field, op, value]). Response {\"message\": <number>} is the value the card shows. Pick the card by ctx.request['form']['doc']['name'], one of: FITIT Sales revenue, FITIT Sales orders, FITIT Active customers, FITIT Amount to collect, FITIT Sales leads, FITIT Suppliers, FITIT Products & services, FITIT Paid invoices. No dry run: use ctx.request.get('form', {}) / ctx.request.get('query', {}) so an empty ctx.request is safe. ",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "example": {
+                  "message": 8390.0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/frappe.desk.doctype.dashboard_chart.dashboard_chart.get": {
+      "post": {
+        "summary": "FITIT Overview chart data (one call per chart)",
+        "description": "Called by the FITIT Overview workspace (/desk/selling/fitit-overview). Request body is form-encoded; hooks read it as ctx.request['form'] with JSON values already decoded. Fields: chart_name, filters, timespan, time_interval, from_date, to_date. Response {\"message\": {\"labels\": [...], \"datasets\": [{\"name\", \"values\": [...]}]}}. Pick the chart by ctx.request['form']['chart_name'], one of: FITIT Sales Performance, FITIT Invoice Status, FITIT Revenue by Customer. No dry run: use ctx.request.get('form', {}) / ctx.request.get('query', {}) so an empty ctx.request is safe. ",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "example": {
+                  "message": {
+                    "labels": [
+                      "25-09-2026",
+                      "26-09-2026"
+                    ],
+                    "datasets": [
+                      {
+                        "name": "FITIT Sales Performance",
+                        "values": [
+                          368.0,
+                          324.0
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/frappe.desk.form.load.getdoc": {
+      "get": {
+        "summary": "Load one document (the overview loads each Number Card and Dashboard Chart through it)",
+        "description": "Called by the FITIT Overview workspace (/desk/selling/fitit-overview). Query: doctype, name (e.g. doctype=Number Card&name=FITIT Sales orders), read as ctx.request['query']. Response {\"docs\": [{name, label, function, document_type, aggregate_function_based_on, filters_json, color, ...}], \"docinfo\": {...}}. ERPNext computes the card value from docs[0].filters_json (a JSON string of [doctype, field, op, value] lists) and function, so a hook here changes what a card counts or sums, e.g. only Aurora Clinic orders on FITIT Sales orders: filters_json[:-1] + ', [\"Sales Order\", \"customer\", \"=\", \"FITIT Aurora Clinic\"]]'. The card title comes from the workspace layout and cannot be changed (renaming it in get_desktop_page hides the card). Customer names start with 'FITIT ' (FITIT Aurora Clinic, FITIT Brisa Architecture, FITIT Cedar Academy). No dry run: use ctx.request.get('form', {}) / ctx.request.get('query', {}) so an empty ctx.request is safe. ",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "example": {
+                  "docs": [
+                    {
+                      "name": "FITIT Sales orders",
+                      "label": "Sales orders",
+                      "function": "Count",
+                      "document_type": "Sales Order",
+                      "filters_json": "[[\"Sales Order\", \"name\", \"like\", \"FITIT%\"], [\"Sales Order\", \"docstatus\", \"=\", 1]]"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/frappe.desk.reportview.get_count": {
+      "post": {
+        "summary": "FITIT Overview shortcut counts (Customers, Sales orders, ...)",
+        "description": "Called by the FITIT Overview workspace (/desk/selling/fitit-overview). Request body is form-encoded; hooks read it as ctx.request['form'] with JSON values already decoded. Fields: doctype, filters. Response {\"message\": <count>}. No dry run: use ctx.request.get('form', {}) / ctx.request.get('query', {}) so an empty ctx.request is safe. ",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "example": {
+                  "message": 12
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/frappe.desk.reportview.get": {
+      "post": {
+        "summary": "FITIT Overview open tasks list",
+        "description": "Called by the FITIT Overview workspace (/desk/selling/fitit-overview). Request body is form-encoded; hooks read it as ctx.request['form'] with JSON values already decoded. Fields: doctype (Task), fields, filters, order_by, page_length. Response {\"message\": {\"keys\": [field names], \"values\": [[row values in keys order], ...]}}. No dry run: use ctx.request.get('form', {}) / ctx.request.get('query', {}) so an empty ctx.request is safe. ",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "example": {
+                  "message": {
+                    "keys": [
+                      "name",
+                      "subject",
+                      "status"
+                    ],
+                    "values": [
+                      [
+                        "FITIT-TASK-1",
+                        "Call Aurora",
+                        "Open"
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/frappe.desk.reportview.get_list": {
+      "get": {
+        "summary": "Generic list; the overview's customer cards use it for Customer, Sales Order and Sales Invoice",
+        "description": "Called by the FITIT Overview workspace (/desk/selling/fitit-overview). Query: doctype, fields, filters, limit (ctx.request['query']). Response {\"message\": [rows]}. Customer cards read doctype=Customer, Sales Order (customer, name) and Sales Invoice (customer, base_grand_total, outstanding_amount). No dry run: use ctx.request.get('form', {}) / ctx.request.get('query', {}) so an empty ctx.request is safe. ",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "example": {
+                  "message": [
+                    {
+                      "name": "FITIT Aurora Clinic",
+                      "customer_name": "FITIT Aurora Clinic"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
