@@ -173,3 +173,20 @@ def test_list_endpoints_on_demo_openapi():
     ops = sum(len(v) for v in api.get("/openapi.json")["paths"].values())
     lines = seen[1].content.splitlines()
     assert len(lines) == ops and all(re.match(r"^(GET|POST|PUT|PATCH|DELETE) /\S*: ", l) for l in lines)
+
+
+def test_main_route_end_to_end(monkeypatch):
+    import main
+    monkeypatch.setenv("BASE_URL", os.environ.get("DEMO_URL", "http://demo:8001"))
+    code = 'ROUTE = "GET /api/invoices"\n\ndef run(data, ctx):\n    return data[:1]\n'
+    model = scripted(("get_endpoint", {"path": "/api/invoices"}), ("write_hook", {"name": "one", "code": code}), "ok")
+    c = TestClient(main.app, follow_redirects=False)
+    c.get("/login", params={"user": "gerente"})
+    user = c.get("/api/me").json()["id"]
+    with agent.agent.override(model=model), c.websocket_connect("/fitit/ws") as ws:
+        ws.send_json({"type": "message", "text": "only one invoice"})
+        turn = []
+        while not turn or turn[-1]["type"] != "done":
+            turn.append(ws.receive_json())
+    assert [e["type"] for e in turn] == ["tool", "tool", "hook_saved", "text", "done"]
+    assert [h["name"] for h in hooks.list_hooks(user)] == ["one"]

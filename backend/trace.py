@@ -1,4 +1,4 @@
-"""Trace seam: the core's only interface to observability. Spec: docs/specs/trace-events.md."""
+"""Trace seam. Spec: docs/specs/trace-events.md. Default implementation: one JSON line per event."""
 import json
 import time
 
