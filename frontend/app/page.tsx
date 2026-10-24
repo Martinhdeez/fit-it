@@ -63,7 +63,7 @@ type WindowRuntime = {
 };
 
 function windowKey(conversationId: string | null): string {
-  return conversationId ? `c:${conversationId}` : "default";
+  return conversationId && conversationId !== "default" ? `c:${conversationId}` : "default";
 }
 
 function createChat(conversationId: string | null, title = "New chat"): ChatWindow {
@@ -152,6 +152,7 @@ function Waveform() {
 type Size = { width: number; height: number };
 
 const SIZE_KEY = "fitit-panel-size";
+const WINDOWS_KEY = "fitit-windows";
 const MIN_SIZE: Size = { width: 360, height: 420 };
 const STEP = 24;
 
@@ -277,6 +278,32 @@ export default function Page() {
     sheetRef.current?.focus();
   }, [sheet]);
 
+  // Restore the windows kept across the host reload that follows a saved hook (embed-widget spec, "Conversations").
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(WINDOWS_KEY) ?? "null");
+      sessionStorage.removeItem(WINDOWS_KEY);
+      if (!saved?.windows?.length) return;
+      const restored: ChatWindow[] = saved.windows.map((chat: ChatWindow) => ({
+        ...createChat(chat.conversationId, chat.title),
+        items: chat.items,
+      }));
+      windowsRef.current = restored;
+      setWindows(restored);
+      activeKeyRef.current = saved.activeKey;
+      setActiveKey(saved.activeKey);
+      if (saved.open) openPanel();
+    } catch {}
+  }, []);
+
+  function reloadKeepingWindows() {
+    try {
+      const windows = windowsRef.current.map(({ conversationId, title, items }) => ({ conversationId, title, items }));
+      sessionStorage.setItem(WINDOWS_KEY, JSON.stringify({ open, activeKey: activeKeyRef.current, windows }));
+    } catch {}
+    reloadHostPage();
+  }
+
   async function loadFeatures() {
     try {
       setFeatures(await listFeatures());
@@ -295,8 +322,8 @@ export default function Page() {
       setConversations(list);
       setWindows((current) =>
         current.map((chat) => {
-          if (!chat.conversationId) return chat;
-          const match = list.find((item) => item.id === chat.conversationId);
+          // The first window has no id; the server stores it as "default".
+          const match = list.find((item) => item.id === (chat.conversationId ?? "default"));
           if (!match?.title || match.title === chat.title) return chat;
           return { ...chat, title: match.title };
         }),
@@ -338,7 +365,7 @@ export default function Page() {
         const reload = slot.savedThisTurn;
         patch(key, (chat) => ({ ...chat, busy: false }));
         if (reload) {
-          reloadHostPage();
+          reloadKeepingWindows();
           return;
         }
         void loadFeatures();
@@ -518,6 +545,8 @@ export default function Page() {
       ...chat,
       draft: "",
       busy: true,
+      // Title like the backend (first prompt, 60 chars) so a failed, unstored first turn is not left as "New chat".
+      title: chat.items.some((item) => item.kind === "prompt") ? chat.title : [...text].slice(0, 60).join(""),
       items: [...chat.items, { kind: "prompt", text }],
     }));
     sendMessage(socket, text);
@@ -595,7 +624,7 @@ export default function Page() {
       setPendingFeature("");
       return;
     }
-    reloadHostPage();
+    reloadKeepingWindows();
   }
 
   async function publish(name: string, title: string, description: string) {
