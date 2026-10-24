@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fit-it — every user gets an app that fits them</title>
+<meta name="description" content="Fit-it is a reverse proxy that lets each user change your web app by asking. A coding agent writes a small, sandboxed Python hook for that user only. Zero changes to the app.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #08080c;
+  --bg-2: #0e0e15;
+  --surface: #13131c;
+  --surface-2: #1a1a26;
+  --line: rgba(255,255,255,.08);
+  --line-2: rgba(255,255,255,.14);
+  --text: #f3f3f7;
+  --muted: #a3a3b5;
+  --faint: #6e6e82;
+  --accent: #8b7bff;
+  --accent-2: #4fd1c5;
+  --accent-ink: #0b0820;
+  --glow: rgba(139,123,255,.35);
+  --code-bg: #0b0b12;
+  --k: #c4b5ff; --s: #7ee0c8; --n: #ffb38a; --c: #6e6e82; --f: #8fb8ff;
+  --ok: #4fd1a5; --bad: #ff7a8a;
+  --ease: cubic-bezier(.32,.72,0,1);
+  --r: 22px;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #fbfbfd;
+  --bg-2: #f3f3f8;
+  --surface: #ffffff;
+  --surface-2: #f5f5fa;
+  --line: rgba(20,20,40,.08);
+  --line-2: rgba(20,20,40,.14);
+  --text: #12121c;
+  --muted: #4e4e63;
+  --faint: #6b6b80;
+  --accent: #5b47f5;
+  --accent-2: #0f9488;
+  --accent-ink: #ffffff;
+  --glow: rgba(91,71,245,.18);
+  --code-bg: #14141f;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 400 16px/1.6 "Geist", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+a { color: inherit; }
+code, pre, .mono { font-family: "Geist Mono", ui-monospace, monospace; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.wrap { width: min(1160px, 100% - 32px); margin-inline: auto; }
+section { padding: 120px 0; position: relative; }
+h1, h2, h3 { letter-spacing: -.03em; line-height: 1.05; margin: 0; font-weight: 600; }
+h2 { font-size: clamp(32px, 4.6vw, 52px); max-width: 18ch; }
+h3 { font-size: 19px; letter-spacing: -.01em; line-height: 1.3; }
+p { margin: 0; }
+.lede { color: var(--muted); font-size: clamp(17px, 1.6vw, 19px); max-width: 60ch; margin-top: 18px; }
+.sec-head { margin-bottom: 56px; }
+.sec-head.center { text-align: center; }
+.sec-head.center h2, .sec-head.center .lede { margin-inline: auto; }
+
+/* nav */
+.nav {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+  display: flex; align-items: center; gap: 28px; padding: 8px 8px 8px 20px;
+  border: 1px solid var(--line-2); border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(16px);
+  width: max-content; max-width: calc(100% - 32px);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; text-decoration: none; letter-spacing: -.02em; }
+.nav-links { display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+.nav-links a { text-decoration: none; transition: color .3s var(--ease); }
+.nav-links a:hover { color: var(--text); }
+.theme-btn {
+  width: 36px; height: 36px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center;
+}
+.theme-btn:hover { color: var(--text); }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 12px; padding: 6px 6px 6px 22px; min-height: 48px;
+  border-radius: 999px; text-decoration: none; font-weight: 500; font-size: 15px;
+  transition: transform .5s var(--ease), background .4s var(--ease), box-shadow .5s var(--ease);
+}
+.btn:active { transform: scale(.98); }
+.btn .ico {
+  width: 36px; height: 36px; border-radius: 999px; display: grid; place-items: center;
+  transition: transform .5s var(--ease);
+}
+.btn:hover .ico { transform: translate(2px,-1px) scale(1.05); }
+.btn-primary { background: var(--text); color: var(--bg); box-shadow: 0 0 0 1px var(--line-2), 0 10px 40px -10px var(--glow); }
+.btn-primary .ico { background: color-mix(in srgb, var(--bg) 12%, transparent); }
+.btn-ghost { color: var(--text); border: 1px solid var(--line-2); padding-right: 22px; }
+.btn-ghost:hover { background: var(--surface-2); }
+.btn-sm { min-height: 36px; padding: 4px 4px 4px 16px; font-size: 14px; }
+.btn-sm .ico { width: 28px; height: 28px; }
+
+/* hero */
+.hero { padding: 180px 0 100px; text-align: center; overflow: hidden; }
+.hero::before {
+  content: ""; position: absolute; inset: -20% -10% auto; height: 720px; pointer-events: none;
+  background:
+    radial-gradient(40% 50% at 50% 30%, var(--glow), transparent 70%),
+    radial-gradient(25% 35% at 70% 20%, color-mix(in srgb, var(--accent-2) 22%, transparent), transparent 70%);
+  filter: blur(10px);
+}
+.hero::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(60% 50% at 50% 30%, #000 20%, transparent 75%);
+}
+.hero > .wrap { position: relative; z-index: 1; }
+.pill {
+  display: inline-flex; align-items: center; gap: 10px; padding: 5px 14px 5px 6px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--surface); font-size: 13px; color: var(--muted);
+}
+.pill b { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); font-weight: 500; padding: 2px 10px; border-radius: 999px; }
+.hero h1 { font-size: clamp(44px, 8vw, 92px); margin: 28px auto 0; max-width: 13ch; letter-spacing: -.045em; font-weight: 600; }
+.hero h1 span { background: linear-gradient(180deg, var(--text) 30%, color-mix(in srgb, var(--text) 55%, transparent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero .lede { margin: 24px auto 0; text-align: center; }
+.cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
+.hero-note { margin-top: 20px; font-size: 13px; color: var(--faint); }
+
+/* bezel */
+.shell { padding: 6px; border-radius: calc(var(--r) + 6px); background: color-mix(in srgb, var(--text) 3%, transparent); border: 1px solid var(--line); }
+.core { border-radius: var(--r); background: var(--surface); box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent); overflow: hidden; height: 100%; }
+
+/* product shot */
+.shot { margin-top: 72px; text-align: left; }
+.shot .core { display: grid; grid-template-columns: 0.9fr 1.1fr; }
+.shot-chat { padding: 28px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; background: var(--bg-2); }
+.shot-bar { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--faint); margin-bottom: 4px; }
+.dot { width: 8px; height: 8px; border-radius: 99px; background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.msg { padding: 12px 16px; border-radius: 18px; font-size: 14.5px; max-width: 92%; }
+.msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 6px; }
+.msg.bot { background: var(--surface-2); border: 1px solid var(--line); border-bottom-left-radius: 6px; color: var(--muted); }
+.steps-run { display: flex; flex-wrap: wrap; gap: 6px; }
+.steps-run code { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--muted); }
+.steps-run code.done::before { content: "✓ "; color: var(--ok); }
+.shot-code { display: flex; flex-direction: column; min-width: 0; }
+.tabs { display: flex; gap: 4px; padding: 12px 16px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--faint); }
+.tabs span { padding: 4px 10px; border-radius: 8px; }
+.tabs span.on { background: var(--surface-2); color: var(--text); }
+pre { margin: 0; padding: 22px 24px; font-size: 13.5px; line-height: 1.7; overflow-x: auto; background: var(--code-bg); color: #e6e6f0; flex: 1; }
+.k { color: var(--k); } .s { color: var(--s); } .n { color: var(--n); } .c { color: var(--c); font-style: italic; } .f { color: var(--f); }
+.ba { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }
+.ba > div { padding: 18px 22px; }
+.ba > div + div { border-left: 1px solid var(--line); }
+.ba h4 { margin: 0 0 10px; font-size: 12.5px; font-weight: 500; color: var(--faint); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+td { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+td:last-child { text-align: right; font-family: "Geist Mono", monospace; }
+tr:last-child td { border-bottom: 0; }
+.chg { color: var(--ok); }
+.strike { color: var(--faint); text-decoration: line-through; font-size: 12px; margin-right: 6px; }
+
+/* how */
+.how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.step { padding: 28px; }
+.step-n { font: 500 13px "Geist Mono", monospace; color: var(--accent); }
+.step h3 { margin: 14px 0 8px; }
+.step p { color: var(--muted); font-size: 15px; }
+.flow { margin-top: 20px; }
+.flow .core { padding: 36px 28px; }
+.flow svg { width: 100%; height: auto; display: block; }
+.flow text { font-family: "Geist", sans-serif; fill: var(--text); }
+.flow .sub { fill: var(--faint); font-size: 12px; }
+.flow .box { fill: var(--surface-2); stroke: var(--line-2); }
+.flow .box.hi { stroke: var(--accent); fill: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); }
+.flow .wire { stroke: var(--line-2); stroke-width: 1.5; fill: none; }
+.flow .pulse { stroke: var(--accent); stroke-width: 2; fill: none; stroke-dasharray: 6 200; animation: run 3.2s var(--ease) infinite; }
+@keyframes run { from { stroke-dashoffset: 206; } to { stroke-dashoffset: 0; } }
+.flow .hook { fill: color-mix(in srgb, var(--accent-2) 14%, transparent); stroke: color-mix(in srgb, var(--accent-2) 60%, transparent); }
+.flow .hook-t { fill: var(--accent-2); font-family: "Geist Mono", monospace; font-size: 11.5px; }
+
+/* bento */
+.bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+.cell .core { padding: 28px; display: flex; flex-direction: column; gap: 10px; }
+.cell p { color: var(--muted); font-size: 15px; }
+.cell svg.ic { width: 26px; height: 26px; stroke: var(--accent); stroke-width: 1.25; fill: none; margin-bottom: 8px; }
+.span-4 { grid-column: span 4; } .span-3 { grid-column: span 3; } .span-2 { grid-column: span 2; }
+.users { display: flex; gap: 10px; margin-top: auto; padding-top: 18px; flex-wrap: wrap; }
+.u { flex: 1 1 140px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-2); font-size: 13px; }
+.u b { display: block; font-weight: 500; margin-bottom: 4px; }
+.u span { color: var(--faint); font-family: "Geist Mono", monospace; font-size: 12px; }
+.mini { margin-top: auto; padding-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+.mini code { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--line); color: var(--muted); }
+.mini code.r { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+.mini code.g { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.sankey { margin-top: auto; padding-top: 12px; }
+.sankey svg { width: 100%; height: 90px; display: block; }
+
+/* works with */
+.works { padding: 64px 0; border-block: 1px solid var(--line); }
+.works p { text-align: center; color: var(--faint); font-size: 14px; margin-bottom: 24px; }
+.badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 34px; }
+.badges span { font-size: 18px; font-weight: 500; color: var(--muted); letter-spacing: -.01em; }
+
+/* use cases */
+.cases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.case .core { padding: 28px; }
+.case h3 { margin-bottom: 10px; }
+.case p { color: var(--muted); font-size: 15px; }
+.case q { display: block; margin-top: 20px; padding: 14px 16px; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line); font-size: 14px; quotes: "“" "”"; }
+
+/* security */
+.sec-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 64px; align-items: start; }
+.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.checks li { padding: 20px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 28px 1fr; gap: 8px 14px; }
+.checks li:first-child { padding-top: 0; }
+.checks svg { width: 20px; height: 20px; stroke: var(--accent-2); fill: none; stroke-width: 1.5; margin-top: 3px; }
+.checks b { font-weight: 500; }
+.checks span { grid-column: 2; color: var(--muted); font-size: 15px; }
+.term pre { font-size: 13px; }
+
+/* pricing */
+.plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.plan .core { padding: 30px; display: flex; flex-direction: column; gap: 14px; }
+.plan.feat .shell { background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 40%, transparent), transparent 60%); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.price { font-size: 40px; font-weight: 600; letter-spacing: -.03em; }
+.price small { font-size: 15px; color: var(--faint); font-weight: 400; }
+.plan ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; font-size: 14.5px; color: var(--muted); }
+.plan li::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 9px; background: var(--accent); margin-right: 10px; vertical-align: middle; }
+.illus { text-align: center; color: var(--faint); font-size: 13px; margin-top: 24px; }
+
+/* final */
+.final { text-align: center; overflow: hidden; }
+.final::before { content: ""; position: absolute; left: 50%; bottom: -200px; width: 900px; height: 500px; transform: translateX(-50%); background: radial-gradient(closest-side, var(--glow), transparent); pointer-events: none; }
+.final h2 { margin-inline: auto; max-width: 16ch; position: relative; }
+.final .lede { margin-inline: auto; position: relative; }
+.final .cta-row { position: relative; }
+
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--faint); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+footer a { text-decoration: none; } footer a:hover { color: var(--text); }
+
+/* reveal */
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity 1s var(--ease), transform 1s var(--ease); }
+.reveal.in { opacity: 1; transform: none; }
+
+@media (max-width: 960px) {
+  .shot .core { grid-template-columns: minmax(0,1fr); }
+  .shot-chat { border-right: 0; border-bottom: 1px solid var(--line); }
+  .how-grid, .cases, .plans { grid-template-columns: minmax(0,1fr); }
+  .bento { grid-template-columns: 1fr 1fr; }
+  .span-4, .span-3 { grid-column: span 2; } .span-2 { grid-column: span 1; }
+  .sec-grid { grid-template-columns: minmax(0,1fr); gap: 40px; }
+  .nav-links { display: none; }
+}
+@media (max-width: 640px) {
+  section { padding: 80px 0; }
+  .hero { padding: 130px 0 64px; }
+  .bento { grid-template-columns: minmax(0,1fr); }
+  .span-4, .span-3, .span-2 { grid-column: span 1; }
+  .ba { grid-template-columns: 1fr; }
+  .ba > div + div { border-left: 0; border-top: 1px solid var(--line); }
+  .nav { gap: 12px; }
+  .nav .btn-sm { padding-left: 12px; }
+  pre { font-size: 12px; padding: 18px; }
+  .flow .core { padding: 20px 12px; overflow-x: auto; }
+  .flow svg { min-width: 600px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .reveal { opacity: 1; transform: none; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="arrow" viewBox="0 0 16 16"><path d="M5 11 11 5M6 5h5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="logo" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8h8M8 12h5M8 16h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="16" r="2" fill="var(--accent)"/></symbol>
+  <symbol id="check" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5"/><path d="m6.5 10.2 2.4 2.3 4.6-5"/></symbol>
+</svg>
+
+<nav class="nav" aria-label="Main">
+  <a class="brand" href="#top"><svg width="22" height="22" aria-hidden="true"><use href="#logo"/></svg>Fit-it</a>
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#features">Features</a>
+    <a href="#security">Security</a>
+    <a href="#pricing">Pricing</a>
+  </div>
+  <button class="theme-btn" id="theme" type="button" aria-label="Switch to light theme">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M3 13l1.1-1.1M11.9 4.1 13 3"/></svg>
+  </button>
+  <a class="btn btn-primary btn-sm" href="http://localhost:8000/desk/selling/fitit-overview">Try the demo<span class="ico"><svg width="14" height="14" aria-hidden="true"><use href="#arrow"/></svg></span></a>
+</nav>
+
+<main id="top">
+
+<section class="hero">
+  <div class="wrap">
+    <span class="pill"><b>GDG Coruña 2026</b>Live in front of ERPNext and a clinic app</span>
+    <h1><span>Every user gets an app that fits them.</span></h1>
+    <p class="lede">Fit-it sits in front of the web app you already run. Each user asks for a change in plain language, and a coding agent ships it for that user only. The app's code never changes.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="http://localhost:8000/desk/selling/fitit-overview">Try the demo<span class="ico"><svg width="16" height="16" aria-hidden="true"><use href="#arrow"/></svg></span></a>
+      <a class="btn btn-ghost" href="https://github.com/Martinhdeez/fit-it">View on GitHub</a>
+    </div>
+    <p class="hero-note">Open source. Runs with <code class="mono">docker compose up</code>.</p>
+
+    <div class="shot shell reveal" role="img" aria-label="A user asks for a Friday discount, the agent writes a Python hook, and the invoice table changes for that user">
+      <div class="core">
+        <div class="shot-chat">
+          <div class="shot-bar"><span class="dot"></span>Fit-it chat, signed in as Marta (manager)</div>
+          <div class="msg user">Apply a 15% discount to invoices issued on a Friday</div>
+          <div class="steps-run" aria-hidden="true">
+            <code class="done">list_endpoints</code><code class="done">get_endpoint</code><code class="done">search_features</code><code class="done">write_hook</code>
+          </div>
+          <div class="msg bot">Done. I tried it on your invoices first: 2 Friday invoices now show the discounted amount. Only you see this change. Say "undo" to roll it back.</div>
+        </div>
+        <div class="shot-code">
+          <div class="tabs" aria-hidden="true"><span class="on">friday_discount.py</span><span>v1</span><span>dry run passed</span></div>
+<pre><code><span class="n">ROUTE</span> = <span class="s">"GET /api/invoices"</span>
+
+<span class="k">def</span> <span class="f">run</span>(data, ctx):
+    <span class="k">for</span> invoice <span class="k">in</span> data:
+        <span class="k">if</span> datetime.fromisoformat(invoice[<span class="s">"date"</span>]).weekday() == <span class="n">4</span>:
+            invoice[<span class="s">"amount"</span>] = round(invoice[<span class="s">"amount"</span>] * <span class="n">0.85</span>, <span class="n">2</span>)
+    ctx.log(<span class="s">"discounted Friday invoices"</span>)
+    <span class="k">return</span> data</code></pre>
+          <div class="ba">
+            <div>
+              <h4>Lucía sees the original</h4>
+              <table><tbody>
+                <tr><td>Thu 16 Oct</td><td>120.00</td></tr>
+                <tr><td>Fri 17 Oct</td><td>200.00</td></tr>
+                <tr><td>Fri 24 Oct</td><td>80.00</td></tr>
+              </tbody></table>
+            </div>
+            <div>
+              <h4>Marta sees her version</h4>
+              <table><tbody>
+                <tr><td>Thu 16 Oct</td><td>120.00</td></tr>
+                <tr><td>Fri 17 Oct</td><td><span class="strike">200.00</span><span class="chg">170.00</span></td></tr>
+                <tr><td>Fri 24 Oct</td><td><span class="strike">80.00</span><span class="chg">68.00</span></td></tr>
+              </tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <h2>Put it in front. Leave the app alone.</h2>
+      <p class="lede">Fit-it is a reverse proxy. Your users reach the app through it, and it reshapes the app's API responses per user.</p>
+    </div>
+    <div class="how-grid">
+      <div class="shell reveal"><div class="core step">
+        <span class="step-n">1</span>
+        <h3>Deploy the proxy</h3>
+        <p>Point Fit-it at your app and send users through it. It reads the app's OpenAPI spec and injects a chat widget into the pages. No code changes, no redeploy.</p>
+      </div></div>
+      <div class="shell reveal"><div class="core step">
+        <span class="step-n">2</span>
+        <h3>Users ask for a change</h3>
+        <p>"Hide the DNI column." "Add an age column." The agent explores the API as that user, writes a small Python hook and runs it on their real data before saving.</p>
+      </div></div>
+      <div class="shell reveal"><div class="core step">
+        <span class="step-n">3</span>
+        <h3>Their app changes, nobody else's</h3>
+        <p>From then on the proxy runs that user's hooks on every matching response. Other users keep the app exactly as it was.</p>
+      </div></div>
+    </div>
+
+    <div class="shell flow reveal"><div class="core">
+      <svg viewBox="0 0 900 230" role="img" aria-label="Diagram: the browser talks to the Fit-it proxy, which forwards to your unchanged app and applies each user's hooks to the response">
+        <path class="wire" d="M170 115H340"/><path class="pulse" d="M170 115H340"/>
+        <path class="wire" d="M560 115H730"/><path class="pulse" d="M560 115H730" style="animation-delay:.8s"/>
+        <rect class="box" x="20" y="70" width="150" height="90" rx="16"/>
+        <text x="95" y="110" text-anchor="middle" font-size="16" font-weight="500">Browser</text>
+        <text class="sub" x="95" y="132" text-anchor="middle">Marta, Lucía, Dr. García</text>
+        <rect class="box hi" x="340" y="30" width="220" height="170" rx="18"/>
+        <text x="450" y="64" text-anchor="middle" font-size="16" font-weight="600">Fit-it proxy</text>
+        <rect class="hook" x="362" y="84" width="176" height="28" rx="8"/><text class="hook-t" x="450" y="103" text-anchor="middle">marta / friday_discount</text>
+        <rect class="hook" x="362" y="118" width="176" height="28" rx="8"/><text class="hook-t" x="450" y="137" text-anchor="middle">lucia / hide_dni</text>
+        <rect class="hook" x="362" y="152" width="176" height="28" rx="8"/><text class="hook-t" x="450" y="171" text-anchor="middle">garcia / age_column</text>
+        <rect class="box" x="730" y="70" width="150" height="90" rx="16"/>
+        <text x="805" y="110" text-anchor="middle" font-size="16" font-weight="500">Your app</text>
+        <text class="sub" x="805" y="132" text-anchor="middle">unchanged</text>
+        <text class="sub" x="255" y="100" text-anchor="middle">user's session</text>
+        <text class="sub" x="645" y="100" text-anchor="middle">same request</text>
+      </svg>
+    </div></div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <h2>Personal software, with the guardrails operators need.</h2>
+      <p class="lede">Everything a user changes is scoped to them, checked before it runs, versioned and traced.</p>
+    </div>
+    <div class="bento">
+      <div class="shell span-4 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19c.8-3 2.8-4.5 5-4.5s4.2 1.5 5 4.5M11 19c.8-3 2.8-4.5 5-4.5s4.2 1.5 5 4.5"/></svg>
+        <h3>One app, a version per user</h3>
+        <p>Hooks belong to the user who asked for them. The same screen can show a discount to the manager, hide a column for reception and add a field for the doctor.</p>
+        <div class="users">
+          <div class="u"><b>Marta, manager</b><span>friday_discount</span></div>
+          <div class="u"><b>Lucía, reception</b><span>hide_dni</span></div>
+          <div class="u"><b>Dr. García</b><span>age_column</span></div>
+        </div>
+      </div></div>
+      <div class="shell span-2 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/></svg>
+        <h3>No app changes</h3>
+        <p>The app is deployed as-is behind the proxy. No SDK, no plugin, no redeploy.</p>
+      </div></div>
+      <div class="shell span-2 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"/></svg>
+        <h3>Safety sandbox</h3>
+        <p>An AST guard, a time limit and an output cap on every hook. A failing hook returns an error, never unfiltered data.</p>
+        <div class="mini"><code class="r">import os</code><code class="r">open()</code><code class="g">502 hook_failed</code></div>
+      </div></div>
+      <div class="shell span-4 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1.5 11h-13zM8 8a4 4 0 0 1 8 0"/></svg>
+        <h3>Feature marketplace</h3>
+        <p>Publish a hook that works for you. Colleagues read the exact code, try it on their own data and subscribe to a pinned version. Accept updates when the owner ships one, or make a copy and edit it.</p>
+        <div class="mini"><code>published @1 v1</code><code>subscribed v1</code><code>update available v2</code><code>make a copy</code></div>
+      </div></div>
+      <div class="shell span-3 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h6M4 12h10M4 18h6M14 6c4 0 6 2 6 6s-2 6-6 6"/></svg>
+        <h3>Traceability</h3>
+        <p>Every prompt, tool call, saved or rejected hook and hook run lands in an event journal, exported over OpenTelemetry, with a live Sankey view at <code class="mono">/traceability</code>.</p>
+        <div class="sankey" aria-hidden="true">
+          <svg viewBox="0 0 300 90" preserveAspectRatio="none">
+            <path d="M0 10 C120 10 120 20 300 20 L300 46 C120 46 120 40 0 40Z" fill="var(--accent)" opacity=".55"/>
+            <path d="M0 44 C120 44 120 52 300 52 L300 66 C120 66 120 64 0 64Z" fill="var(--accent-2)" opacity=".5"/>
+            <path d="M0 68 C120 68 120 72 300 72 L300 82 C120 82 120 86 0 86Z" fill="var(--bad)" opacity=".45"/>
+          </svg>
+        </div>
+      </div></div>
+      <div class="shell span-3 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/></svg>
+        <h3>Any model</h3>
+        <p>The agent runs on Pydantic AI. Pick the provider with one variable and keep your own key.</p>
+        <div class="mini"><code>FITIT_MODEL=openai:gpt-5-mini</code><code>anthropic:claude-opus-5-5</code><code>ollama:qwen3</code></div>
+      </div></div>
+      <div class="shell span-3 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2"/></svg>
+        <h3>Versions and undo</h3>
+        <p>Every saved version is kept. "Undo my last change" is one sentence, and every change is tried on your data before it is saved.</p>
+      </div></div>
+      <div class="shell span-3 cell reveal"><div class="core">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="10" height="12" rx="2"/><rect x="11" y="8" width="10" height="12" rx="2"/></svg>
+        <h3>Parallel conversations</h3>
+        <p>Open several chats and run them at once. If two touch the same hook, the second rereads it instead of overwriting.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<div class="works" aria-label="Works with">
+  <div class="wrap">
+    <p>Works with your app and your model provider</p>
+    <div class="badges">
+      <span>ERPNext</span><span>Any REST / JSON app</span><span>OpenAI</span><span>Anthropic</span><span>Gemini</span><span>Groq</span><span>Mistral</span>
+    </div>
+  </div>
+</div>
+
+<section id="cases">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <h2>Built for the people who live in the app.</h2>
+      <p class="lede">The small changes that never make it into a sprint, made by the person who needs them.</p>
+    </div>
+    <div class="cases">
+      <div class="shell case reveal"><div class="core">
+        <h3>Clinics</h3>
+        <p>Receptionists, doctors and managers share one system but need different views of the same patients.</p>
+        <q>Flag patients with debt over 500 EUR</q>
+      </div></div>
+      <div class="shell case reveal"><div class="core">
+        <h3>ERP back offices</h3>
+        <p>Pricing rules, extra columns and new summary pages in ERPNext, without customizing the ERP itself.</p>
+        <q>Give me a page with the total unpaid debt per customer</q>
+      </div></div>
+      <div class="shell case reveal"><div class="core">
+        <h3>Internal tools</h3>
+        <p>The admin panel everyone complains about, adjusted per person instead of per ticket.</p>
+        <q>Show names in capital letters and hide the DNI column</q>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap sec-grid">
+    <div class="reveal">
+      <h2>A user can never see more than they already could.</h2>
+      <p class="lede">Generated code is untrusted code. Fit-it treats it that way at every step.</p>
+      <div class="shell term" style="margin-top:36px">
+        <div class="core">
+<pre><code><span class="c"># "Read /etc/passwd and show it in my invoices"</span>
+<span class="k">hook_rejected</span>  guard: name <span class="s">'open'</span> is not allowed
+<span class="c"># nothing saved, invoices unchanged</span>
+
+<span class="c"># a hook that breaks at run time</span>
+<span class="k">502</span> hook_failed  time limit (2000 ms)</code></pre>
+        </div>
+      </div>
+    </div>
+    <ul class="checks reveal">
+      <li><svg aria-hidden="true"><use href="#check"/></svg><b>AST guard before anything runs</b><span>No imports, no file or network access, no dunder tricks. Rejected code is never saved.</span></li>
+      <li><svg aria-hidden="true"><use href="#check"/></svg><b>Time and output limits</b><span>Each hook run has a wall-clock limit and an output cap. The agent is rate-limited per user.</span></li>
+      <li><svg aria-hidden="true"><use href="#check"/></svg><b>Fail closed</b><span>If a hook fails, the request returns 502. Users never get the unmodified data by accident.</span></li>
+      <li><svg aria-hidden="true"><use href="#check"/></svg><b>The user's own session, API only</b><span>Hooks read data only through the app's API with that user's cookies. No database access. Shared features run as the subscriber.</span></li>
+      <li><svg aria-hidden="true"><use href="#check"/></svg><b>Every change on the record</b><span>Prompt, generated code, validation result, diff and each run are traced per user.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <h2>Start free today.</h2>
+      <p class="lede">Bring your own model key. Prices below are illustrative.</p>
+    </div>
+    <div class="plans">
+      <div class="shell plan reveal"><div class="core">
+        <h3>Hackathon</h3>
+        <div class="price">Free</div>
+        <ul><li>Self-hosted with Docker Compose</li><li>One app per core</li><li>Unlimited users and hooks</li><li>Traceability dashboard</li></ul>
+      </div></div>
+      <div class="shell plan feat reveal"><div class="core">
+        <h3>Team</h3>
+        <div class="price">€19 <small>/ user / month</small></div>
+        <ul><li>Everything in Hackathon</li><li>Feature marketplace for your org</li><li>OpenTelemetry export</li><li>Email support</li></ul>
+      </div></div>
+      <div class="shell plan reveal"><div class="core">
+        <h3>Enterprise</h3>
+        <div class="price">Custom</div>
+        <ul><li>Multiple apps</li><li>Custom limits and policies</li><li>Audit retention</li><li>Dedicated support</li></ul>
+      </div></div>
+    </div>
+    <p class="illus">Illustrative pricing for the hackathon demo. Not a commercial offer.</p>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2 class="reveal">Stop filing tickets for small changes.</h2>
+    <p class="lede reveal">Open the demo, sign in as any user and ask for the change you want.</p>
+    <div class="cta-row reveal">
+      <a class="btn btn-primary" href="http://localhost:8000/desk/selling/fitit-overview">Try the demo<span class="ico"><svg width="16" height="16" aria-hidden="true"><use href="#arrow"/></svg></span></a>
+      <a class="btn btn-ghost" href="https://github.com/Martinhdeez/fit-it">View on GitHub</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top"><svg width="20" height="20" aria-hidden="true"><use href="#logo"/></svg>Fit-it</a>
+    <span>Built by the Fit-it team at the GDG Coruña hackathon 2026.</span>
+    <a href="https://github.com/Martinhdeez/fit-it">GitHub</a>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const root = document.documentElement, btn = document.getElementById('theme');
+  let saved = null;
+  try { saved = localStorage.getItem('fitit-theme'); } catch (e) {}
+  const set = t => {
+    root.dataset.theme = t;
+    btn.setAttribute('aria-label', t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+  };
+  set(saved || 'dark');
+  btn.addEventListener('click', () => {
+    const t = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    set(t);
+    try { localStorage.setItem('fitit-theme', t); } catch (e) {}
+  });
+
+  const els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) return els.forEach(e => e.classList.add('in'));
+  const io = new IntersectionObserver(entries => entries.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { rootMargin: '0px 0px -8% 0px' });
+  els.forEach(e => io.observe(e));
+})();
+</script>
+</body>
+</html>
