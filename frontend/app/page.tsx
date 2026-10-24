@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   acceptUpdate,
   ApiError,
-  clearHistory,
   deleteHook,
   errorText,
   featureKey,
@@ -54,7 +53,6 @@ type ChatWindow = {
   draft: string;
   busy: boolean;
   connection: WindowConnection;
-  clearing: boolean;
 };
 
 type WindowRuntime = {
@@ -75,7 +73,6 @@ function createChat(conversationId: string | null, title = "New chat"): ChatWind
     draft: "",
     busy: false,
     connection: "idle",
-    clearing: false,
   };
 }
 
@@ -184,6 +181,8 @@ function diffLineClass(line: string): string | undefined {
 
 export default function Page() {
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
   const [windows, setWindows] = useState<ChatWindow[]>(() => [createChat(null)]);
   const [activeKey, setActiveKey] = useState("default");
   const [signedOut, setSignedOut] = useState(false);
@@ -236,6 +235,22 @@ export default function Page() {
   function append(key: string, item: Item) {
     patch(key, (chat) => ({ ...chat, items: [...chat.items, item] }));
   }
+
+  useEffect(() => {
+    function onHostResize(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      const data: unknown = event.data;
+      if (typeof data !== "object" || data === null || (data as { fitit?: string }).fitit !== "resized") return;
+      const { width, height } = data as { width?: unknown; height?: unknown };
+      if (typeof width !== "number" || typeof height !== "number") return;
+      const size = { width, height };
+      requestedSize.current = size;
+      dragRef.current = null;
+      localStorage.setItem(SIZE_KEY, JSON.stringify(size));
+    }
+    window.addEventListener("message", onHostResize);
+    return () => window.removeEventListener("message", onHostResize);
+  }, []);
 
   useEffect(() => {
     setMicSupported(canRecord());
@@ -402,6 +417,8 @@ export default function Page() {
   }
 
   function openPanel() {
+    closingRef.current = false;
+    setClosing(false);
     tellHost({ fitit: "open" });
     requestedSize.current = null;
     const size = storedSize();
@@ -414,9 +431,24 @@ export default function Page() {
   }
 
   function closePanel() {
+    if (closingRef.current) return;
     cancelRecording();
     setChatsOpen(false);
     setSheet(null);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setOpen(false);
+      tellHost({ fitit: "close" });
+      return;
+    }
+    closingRef.current = true;
+    setClosing(true);
+  }
+
+  function finishClose(event: React.AnimationEvent<HTMLElement>) {
+    if (event.target !== event.currentTarget || event.animationName !== "panel-out") return;
+    if (!closingRef.current) return;
+    closingRef.current = false;
+    setClosing(false);
     setOpen(false);
     tellHost({ fitit: "close" });
   }
@@ -659,29 +691,6 @@ export default function Page() {
     }
   }
 
-  async function clearChat() {
-    const key = active.key;
-    const conversationId = active.conversationId;
-    if (active.busy || active.clearing) return;
-    patch(key, (chat) => ({ ...chat, clearing: true }));
-    try {
-      await clearHistory(conversationId ?? undefined);
-      patch(key, (chat) => ({ ...chat, items: [], clearing: false }));
-      void refreshConversations();
-    } catch (error) {
-      if (error instanceof SignedOut) {
-        setSignedOut(true);
-        patch(key, (chat) => ({ ...chat, clearing: false }));
-      } else {
-        patch(key, (chat) => ({
-          ...chat,
-          clearing: false,
-          items: [...chat.items, { kind: "error", message: "Could not clear the chat. Try again." }],
-        }));
-      }
-    }
-  }
-
   if (!open) {
     return (
       <main className="shell">
@@ -720,7 +729,8 @@ export default function Page() {
   return (
     <main className="shell">
       <section
-        className="panel"
+        className={closing ? "panel panel-out" : "panel"}
+        onAnimationEnd={finishClose}
         aria-label="Fit-it"
         onKeyDown={(event) => {
           if (event.key !== "Escape") return;
@@ -750,6 +760,7 @@ export default function Page() {
             } catch {}
             const size = currentSize();
             dragRef.current = { x: event.screenX, y: event.screenY, size, last: size };
+            tellHost({ fitit: "resize-drag", width: size.width, height: size.height, x: event.screenX, y: event.screenY });
           }}
           onPointerMove={(event) => {
             const drag = dragRef.current;
@@ -811,21 +822,9 @@ export default function Page() {
             </div>
           )}
           <div className="header-actions">
-            {signedOut ? null : (
-              <button
-                type="button"
-                className="clear-history"
-                aria-label="Clear this chat"
-                title="Clear this chat"
-                disabled={active.busy || active.clearing}
-                onClick={() => void clearChat()}
-              >
-                Clear chat
-              </button>
-            )}
             <button type="button" className="icon-button" aria-label="Close Fit-it" onClick={closePanel}>
               <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M4 4l8 8M12 4l-8 8" />
+                <path d="M3.5 6.5 L8 11 L12.5 6.5" />
               </svg>
             </button>
           </div>
@@ -1100,7 +1099,14 @@ export default function Page() {
                         }
                       })}
                       {live && turn.replies[turn.replies.length - 1]?.kind !== "tools" ? (
-                        <p className="thinking shimmer">Thinking…</p>
+                        <p className="thinking">
+                          <span className="thinking-dots" aria-hidden="true">
+                            <span />
+                            <span />
+                            <span />
+                          </span>
+                          <span className="shimmer">Thinking…</span>
+                        </p>
                       ) : null}
                     </div>
                   </div>

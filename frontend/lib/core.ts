@@ -316,7 +316,8 @@ export function reloadHostPage() {
 export type HostMessage =
   | { fitit: "open" }
   | { fitit: "close" }
-  | { fitit: "resize"; width: number; height: number };
+  | { fitit: "resize"; width: number; height: number }
+  | { fitit: "resize-drag"; width: number; height: number; x: number; y: number };
 
 export function tellHost(message: HostMessage) {
   window.parent.postMessage(message, window.location.origin);
