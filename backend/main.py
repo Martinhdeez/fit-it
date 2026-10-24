@@ -149,6 +149,16 @@ def undo_hook(name: str, request: Request):
     return {"name": name, "version": version, "diff": diff}
 
 
+@app.delete("/fitit/history")
+def clear_history(request: Request):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    from agent import clear_history
+    clear_history(user)
+    return Response(status_code=204)
+
+
 @app.websocket("/fitit/ws")
 async def ws(websocket: WebSocket):
     cookie = websocket.headers.get("cookie", "")

@@ -59,6 +59,7 @@ def database(monkeypatch):
 @pytest.fixture(autouse=True)
 def env(database, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    agent.reset_rate_limits()
     events = []
     monkeypatch.setattr(trace, "emit", lambda kind, **f: events.append((kind, f)))
     return events
@@ -224,3 +225,88 @@ def test_main_route_end_to_end(monkeypatch):
             turn.append(ws.receive_json())
     assert [e["type"] for e in turn] == ["tool", "tool", "hook_saved", "text", "done"]
     assert [h["name"] for h in hooks.list_hooks(user)] == ["one"]
+
+
+GOOD3 = GOOD.replace("x * 2", "x * 3")
+
+
+def test_instructions_list_current_hooks():
+    seen = []
+
+    def fn(messages, info):
+        seen.append(messages[-1].instructions)
+        return ModelResponse(parts=[TextPart("ok")])
+
+    chat(FunctionModel(fn), "hi")
+    hooks.save_hook("alice", "double", GOOD)
+    chat(FunctionModel(fn), "hi")
+    assert "no hooks yet" in seen[0] and "list_endpoints" in seen[0]
+    assert "double: GET /api/items (enabled)" in seen[1]
+
+
+def test_write_hook_same_name_edits(database):
+    hooks.save_hook("alice", "double", GOOD)
+    [turn] = chat(scripted(("read_hook", {"name": "double"}), ("write_hook", {"name": "double", "code": GOOD3}), "ok"),
+                  "make it x3")
+    [saved] = [e for e in turn if e["type"] == "hook_saved"]
+    assert "-    return [x * 2 for x in data]" in saved["diff"] and "+    return [x * 3 for x in data]" in saved["diff"]
+    with psycopg.connect(database) as conn:
+        assert conn.execute("SELECT name, version FROM hooks").fetchall() == [("double", 2)]
+
+
+def test_undo_hook_tool(env):
+    hooks.save_hook("alice", "double", GOOD)
+    hooks.save_hook("alice", "double", GOOD3)
+    seen = []
+
+    def fn(messages, info):
+        seen.append(messages[-1].parts[-1])
+        if len(seen) in (1, 2):
+            return ModelResponse(parts=[ToolCallPart("undo_hook", {"name": "double"})])
+        return ModelResponse(parts=[TextPart("ok")])
+
+    [turn] = chat(FunctionModel(fn), "undo")
+    [saved] = [e for e in turn if e["type"] == "hook_saved"]
+    assert saved["name"] == "double" and saved["route"] == "GET /api/items" and "-    return [x * 3" in saved["diff"]
+    assert seen[1].content == "restored version 1"
+    assert seen[2].content == "nothing to undo: no earlier version"  # plain result, not a retry
+    assert hooks.read_hook("alice", "double") == GOOD
+    assert ("hook.restored", {"user": "alice", "hook": "double", "version": 1}) in env
+
+
+def test_rate_limit(monkeypatch, database):
+    monkeypatch.setenv("FITIT_AGENT_MESSAGES_PER_HOUR", "2")
+    calls = []
+
+    def fn(messages, info):
+        calls.append(1)
+        return ModelResponse(parts=[TextPart("ok")])
+
+    chat(FunctionModel(fn), "1", "2")
+    [turn] = chat(FunctionModel(fn), "3")  # new connection, same user
+    assert turn[0]["type"] == "error" and "rate limit" in turn[0]["message"] and turn[1:] == [{"type": "done"}]
+    assert len(calls) == 2
+    with psycopg.connect(database) as conn:
+        assert conn.execute("SELECT count(*) FROM messages").fetchone() == (2,)
+
+
+def test_answer_carries_token_counts(env):
+    chat(scripted("ok"), "hi")
+    [answer] = [f for k, f in env if k == "agent.answer"]
+    assert isinstance(answer["input_tokens"], int) and isinstance(answer["output_tokens"], int)
+    assert answer["input_tokens"] > 0
+
+
+def test_delete_history_route(monkeypatch, database):
+    import main
+    monkeypatch.setenv("BASE_URL", os.environ.get("DEMO_URL", "http://demo:8001"))
+    c = TestClient(main.app, follow_redirects=False)
+    assert c.delete("/fitit/history").status_code == 401
+    c.get("/login", params={"user": "gerente"})
+    user = c.get("/api/me").json()["id"]
+    with psycopg.connect(database) as conn:
+        for u in (user, "other"):
+            conn.execute("INSERT INTO messages (user_id, turn) VALUES (%s, '[]')", (u,))
+    assert c.delete("/fitit/history").status_code == 204
+    with psycopg.connect(database) as conn:
+        assert conn.execute("SELECT user_id FROM messages").fetchall() == [("other",)]
