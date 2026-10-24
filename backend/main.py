@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -10,10 +11,18 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
+import db
 import hooks
 import trace
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app):
+    await run_in_threadpool(db.init)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 EMBED = Path(__file__).parent / "static" / "embed.js"
 UI = Path(__file__).parent / "static" / "ui"  # widget static export (ADR 0015)
