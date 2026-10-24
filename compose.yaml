@@ -1,0 +1,8 @@
+services:
+  core:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Passed through from the host shell; never written to a file in the repo.
+      - ANTHROPIC_API_KEY
