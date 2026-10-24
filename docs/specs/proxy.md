@@ -8,7 +8,9 @@ The HTTP surface of the Fit-it core. Decisions: [ADR 0002](../adr/0002-reverse-p
 |---|---|---|
 | `BASE_URL` | Client app origin | `http://demo:8001` |
 | `WORKSPACES` | Hooks folder | `./workspaces` |
-| `FITIT_MODEL` | Agent model | `anthropic:claude-opus-5-5` |
+| `FITIT_MODEL` | Agent model: any Pydantic AI `provider:model` string ([ADR 0014](../adr/0014-provider-agnostic-model.md)) | `anthropic:claude-opus-5-5` |
+
+Model credentials, set only the one the chosen provider reads: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (plus `OPENAI_BASE_URL` for any OpenAI-compatible endpoint), `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `OLLAMA_BASE_URL`. All pass through from the host shell.
 
 The core listens on port `8000`. Paths under `/fitit/` belong to the core; every other path is proxied.
 

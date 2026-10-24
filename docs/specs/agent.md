@@ -6,7 +6,7 @@ Turns a chat message into a validated hook. Decisions: [ADR 0007](../adr/0007-op
 
 `backend/agent.py` exports:
 - `Deps`: a dataclass with `user: str` and `api` (the same object hooks get as `ctx.api`).
-- `agent`: a Pydantic AI `Agent[Deps, str]` built with the model from `FITIT_MODEL`.
+- `agent`: a Pydantic AI `Agent[Deps, str]` built with the model from `FITIT_MODEL`, read on each turn. It is any Pydantic AI `provider:model` string (`anthropic:`, `openai:`, `google:`, `groq:`, `mistral:`, `ollama:`); the provider's key variable is listed in [proxy Configuration](proxy.md#configuration). If the model cannot be built (unknown provider, missing key), the turn ends with `error` naming the variable to set, then `done`.
 
 Tests replace the model with `agent.override(model=FunctionModel(...))` or `TestModel()`. No test needs an API key.
 

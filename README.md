@@ -27,4 +27,14 @@ docker compose up --build                               # API on :8000
 docker compose run --rm core uv run python check.py     # self-check
 ```
 
+### Choosing the model
+
+`FITIT_MODEL` takes any Pydantic AI `provider:model` string; export the key that provider reads ([ADR 0014](docs/adr/0014-provider-agnostic-model.md)).
+
+```bash
+export ANTHROPIC_API_KEY=...                                 # default: anthropic:claude-opus-5-5
+export FITIT_MODEL=openai:gpt-5 OPENAI_API_KEY=...           # OpenAI
+export FITIT_MODEL=ollama:qwen3 OLLAMA_BASE_URL=http://host.docker.internal:11434/v1   # local Ollama
+```
+
 Contribution rules (Git Flow, Conventional Commits, PRs) are in `AGENTS.md`.

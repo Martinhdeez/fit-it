@@ -5,7 +5,16 @@ services:
       - "8000:8000"
     environment:
       # Passed through from the host shell; never written to a file in the repo.
+      # FITIT_MODEL picks the provider; set only the key that provider reads (docs/adr/0014).
+      - FITIT_MODEL
       - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+      - GROQ_API_KEY
+      - MISTRAL_API_KEY
+      - OLLAMA_BASE_URL
       - BASE_URL=http://demo:8001
       - WORKSPACES=/workspaces
     volumes:
