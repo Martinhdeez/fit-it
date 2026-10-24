@@ -36,10 +36,14 @@ Pass the last `seq` as `after` for the next page. The scan walks the file from t
 
 The queue holds 10,000 records. Above that, the new record is counted in `diagnostics()["dropped"]` and is not in the file. REQ-TR1-2 is not claimed for those dropped records. One process holds `writer.lock`. A second process does not append.
 
+If `events.jsonl` is not empty and has no readable record, the writer stops with `journal has no readable cursor`. Later batches fail and `flush` returns false. Stop the core, move `events.jsonl` aside inside the volume, and start the core. The sink does not reuse a cursor it cannot read.
+
+Uvicorn's access log is separate from this stdout line. `docker logs` on the core still prints the raw request line, including path ids and query strings. Jaeger and the `seq kind user` line do not. Hiding that access log means `--no-access-log` on the core image command.
+
 Only an operator with the volume should read the journal. It contains prompts, diffs and errors. Jaeger does not, and Jaeger forgets traces when it restarts.
 
 ## Spans
 
-FastAPI creates one server span and reads `traceparent`. `emit` adds an internal span for the event. `ms` is `fitit.duration_ms` at the time of the call. Numeric path segments are `{id}`. `url.query` is `REDACTED`. Marketplace ids are `fitit.feature.id`, `fitit.feature.version` and `fitit.feature.created`. Hook restore keeps `fitit.hook.version`.
+FastAPI creates one server span and reads `traceparent`. `emit` adds an internal span for the event. `ms` is `fitit.duration_ms` at the time of the call. Numeric path segments are `{id}`. `url.query` is `REDACTED`. Marketplace ids are `fitit.feature.id`, `fitit.feature.version` and `fitit.feature.created`. Hook restore keeps `fitit.hook.version`. A conversation id is `fitit.conversation`. `trace_view.py` prefixes an agent row with `[conversation]` when that id is not `default`.
 
 Service name: `fit-it-core`. OTLP/HTTP base URL: `OTEL_EXPORTER_OTLP_ENDPOINT` (`http://jaeger:4318` in Compose). Jaeger is `jaegertracing/jaeger:2.11.0`, UI at [http://127.0.0.1:16686](http://127.0.0.1:16686). Its traces are memory only.

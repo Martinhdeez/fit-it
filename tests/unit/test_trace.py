@@ -455,3 +455,59 @@ def test_second_writer_is_refused_until_the_holder_dies(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert int(proc.stdout.strip().splitlines()[-1]) == 2
+
+
+def _fill_other(count: int) -> None:
+    for _ in range(count):
+        trace.emit(
+            "request.proxied", user="other", method="GET", path="/x", status=200, ms=1, hooks=[]
+        )
+
+
+def test_trace_view_finds_a_user_past_the_first_page(audit, monkeypatch, capsys):
+    import trace_view
+
+    _fill_other(1200)
+    trace.emit("agent.message", user="gerente", text="LATE PROMPT")
+    assert trace.flush(20000)
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["trace_view.py", "--user", "gerente"])
+    trace_view.main()
+    lines = [line for line in capsys.readouterr().out.splitlines() if "LATE PROMPT" in line]
+    assert len(lines) == 1
+    assert lines[0].endswith("gerente agent.message LATE PROMPT")
+
+
+def test_trace_view_after_skips_past_the_match(audit, monkeypatch, capsys):
+    import trace_view
+
+    _fill_other(1200)
+    trace.emit("agent.message", user="gerente", text="LATE PROMPT")
+    assert trace.flush(20000)
+    seq = json.loads((audit / "events.jsonl").read_text(encoding="utf-8").splitlines()[-1])["seq"]
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["trace_view.py", "--user", "gerente", "--after", str(seq)])
+    trace_view.main()
+    assert "LATE PROMPT" not in capsys.readouterr().out
+
+
+def test_conversation_is_exported_and_shown(audit, monkeypatch, capsys):
+    import trace_view
+
+    MEMORY.clear()
+    trace.emit("agent.message", user="gerente", text="parallel", conversation="c2")
+    trace.emit("agent.message", user="gerente", text="plain")
+    trace.emit("agent.message", user="gerente", text="long", conversation="x" * 101)
+    assert trace.flush()
+    spans = [span for span in MEMORY.get_finished_spans() if span.name == "agent.message"]
+    assert spans[-3].attributes["fitit.conversation"] == "c2"
+    assert "fitit.conversation" not in (spans[-2].attributes or {})
+    assert "fitit.conversation" not in (spans[-1].attributes or {})
+    assert trace_view.summary({"kind": "agent.message", "text": "parallel", "conversation": "c2"}) == "[c2] parallel"
+    assert trace_view.summary({"kind": "agent.message", "text": "plain", "conversation": "default"}) == "plain"
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["trace_view.py", "--conversation", "c2"])
+    trace_view.main()
+    out = capsys.readouterr().out
+    assert "[c2] parallel" in out
+    assert "plain" not in out

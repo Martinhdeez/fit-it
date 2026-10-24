@@ -70,6 +70,8 @@ TR1 (Álvaro) runs alongside, against `trace-events.md`, which gains the `featur
 | [evals.md](../../specs/evals.md) | v1, case changes | `test_ev1.py` `SPEC_CASES` (`appointments_sorted`, new ids) |
 | [trace-events.md](../../specs/trace-events.md) | v1, minor additions | — |
 
+REQ-TR1-2, clarified on 2026-10-24: every event accepted while the sink is open and its queue has room is recorded and can be read back in order. Events refused because the queue is full or the sink is closed are counted in `diagnostics()["dropped"]` and are outside that guarantee.
+
 ## Out of scope
 
 Review or moderation, an API to read reports, ratings and comments, paid features, multi-hook features, marketplaces across apps, auto-update and notifications, full-text search and pagination, owner analytics beyond the count, deleting feature rows, rate limits on publish or report.
