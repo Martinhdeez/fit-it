@@ -24,3 +24,4 @@ Rules:
 | [0012](0012-trace-seam-for-observability.md) | A single trace seam for observability | Accepted |
 | [0013](0013-developer-and-tester-agents.md) | Developer, tester and reviewer agents | Accepted |
 | [0014](0014-provider-agnostic-model.md) | Provider-agnostic model through `FITIT_MODEL` | Accepted |
+| [0015](0015-widget-as-static-iframe.md) | Widget as a static Next.js export in a same-origin iframe | Accepted |

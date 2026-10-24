@@ -1,23 +1,32 @@
-# Embed widget — v1
+# Embed widget — v2
 
-The script the core injects into every HTML page of a signed-in user. Served at `GET /fitit/embed.js`.
+The chat widget a signed-in user sees on every HTML page. Decision: [ADR 0015](../adr/0015-widget-as-static-iframe.md).
 
-## Behaviour
+## Delivery
 
-1. Mounts a floating button in the bottom-right corner, inside a Shadow DOM root so the app's CSS cannot affect it and it cannot affect the app.
-2. The button opens a panel with three areas: the conversation, an input box, and the list of the user's hooks.
-3. Sending a message opens (or reuses) `WS /fitit/ws` on the same origin and sends `{"type": "message", "text": ...}`.
-4. Events are rendered as they arrive:
-   - `tool`: a small grey line, `→ <name>`;
-   - `hook_saved`: the diff in a monospace block, added lines green, removed lines red;
-   - `hook_rejected`: a red line with the reason;
-   - `text`: the agent's answer;
-   - `error`: a red line.
-5. On `done` after at least one `hook_saved`, the page reloads so the change is visible.
-6. The hook list comes from `GET /fitit/hooks`. Each row shows the name, the route, an on/off toggle (`POST /fitit/hooks/{name}/toggle`, then reload) and a delete button (`DELETE /fitit/hooks/{name}`, then reload).
+1. The core injects `<script src="/fitit/embed.js" defer></script>` into HTML pages ([proxy spec](proxy.md#widget-injection)).
+2. `embed.js` is a plain-JS loader, no build step. It adds one `<iframe src="/fitit/ui/" title="Fit-it">`, fixed bottom-right, no border, transparent background, 64 x 64 px, top z-index. A second run of the script does nothing.
+3. `/fitit/ui/` serves the widget UI: a Next.js static export (`output: "export"`, `basePath: "/fitit/ui"`) built into `backend/static/ui/`. Same origin as the app, so the iframe sends the app's cookies. If it is not built, `/fitit/ui/*` returns `404` `{"error": "not_found"}`.
+
+## Sizing contract
+
+The iframe posts to its parent (`window.parent.postMessage(msg, location.origin)`):
+
+| Message | Loader resizes the iframe to |
+|---|---|
+| `{"fitit": "open"}` | `min(420px, 100vw - 32px)` x `min(640px, 100vh - 32px)` |
+| `{"fitit": "close"}` | 64 x 64 px |
+
+The loader ignores messages whose `source` is not its iframe or whose origin is not the page's origin.
+
+## Widget UI behaviour
+
+- Chat over `WS /fitit/ws`; protocol and events unchanged, see the [agent spec](agent.md#websocket-protocol-ws-fititws).
+- Hook list, toggle and delete through `GET /fitit/hooks`, `POST /fitit/hooks/{name}/toggle`, `DELETE /fitit/hooks/{name}`, unchanged, see the [proxy spec](proxy.md#core-routes).
+- After a `done` that follows at least one `hook_saved`, and after a toggle or delete, it reloads the app with `window.top.location.reload()`.
+- If the WebSocket closes with `4401`, it shows a sign-in message instead of the chat.
 
 ## Constraints
 
-- One file, plain JavaScript, no build step, no external requests.
-- No `alert`, `confirm` or `prompt`.
+- No `alert`, `confirm` or `prompt`. No external requests.
 - Readable at 360 px width.

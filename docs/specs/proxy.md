@@ -52,11 +52,12 @@ If a matching hook raises, the response is `502` with body `{"error": "hook_fail
 
 ## Core routes
 
-All of them return `401` `{"error": "unauthenticated"}` for anonymous users.
+All of them return `401` `{"error": "unauthenticated"}` for anonymous users, except the two static ones.
 
 | Route | Response |
 |---|---|
-| `GET /fitit/embed.js` | The widget script, `content-type: application/javascript`. No authentication needed. |
+| `GET /fitit/embed.js` | The widget loader ([embed widget spec](embed-widget.md)), `content-type: application/javascript`. No authentication needed. |
+| `GET /fitit/ui/*` | The widget UI static export from `backend/static/ui/`, `index.html` for directories. No authentication needed. `404` `{"error": "not_found"}` if not built. |
 | `GET /fitit/hooks` | `200` `[{"name": str, "route": str, "enabled": bool, "code": str}]`, sorted by name |
 | `POST /fitit/hooks/{name}/toggle` | `200` `{"name": str, "enabled": bool}` with the new state; `404` if the hook does not exist |
 | `DELETE /fitit/hooks/{name}` | `204`; `404` if the hook does not exist |

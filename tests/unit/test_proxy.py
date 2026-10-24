@@ -1,3 +1,5 @@
+import importlib
+import shutil
 import sys
 import types
 
@@ -123,7 +125,28 @@ def test_hook_management(tmp_path, env):
 def test_embed_js_and_core_namespace():
     r = client().get("/fitit/embed.js")
     assert r.status_code == 200 and r.headers["content-type"].startswith("application/javascript")
+    assert "/fitit/ui/" in r.text and r.text == main.EMBED.read_text()
     assert client("gerente").get("/fitit/unknown").status_code == 404
+
+
+def test_widget_ui_served_only_when_built(monkeypatch):
+    if main.UI.exists():
+        pytest.skip("a real widget build is present; not touching it")
+    c = client("gerente")
+    monkeypatch.setattr(main.httpx, "request", None)  # nothing may be forwarded
+    r = c.get("/fitit/ui/")
+    assert r.status_code == 404 and r.json() == {"error": "not_found"}
+    monkeypatch.undo()
+    main.UI.mkdir(parents=True)
+    try:
+        (main.UI / "index.html").write_text("<p>fitit-ui</p>")
+        importlib.reload(main)  # the mount is decided at import
+        r = client().get("/fitit/ui/")
+        assert r.status_code == 200 and r.text == "<p>fitit-ui</p>"
+        assert r.headers["content-type"].startswith("text/html")
+    finally:
+        shutil.rmtree(main.UI)
+        importlib.reload(main)
 
 
 def test_api_get():

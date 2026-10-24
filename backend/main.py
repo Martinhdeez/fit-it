@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 import hooks
@@ -15,6 +16,7 @@ import trace
 app = FastAPI()
 
 EMBED = Path(__file__).parent / "static" / "embed.js"
+UI = Path(__file__).parent / "static" / "ui"  # widget static export (ADR 0015)
 SCRIPT = b'<script src="/fitit/embed.js" defer></script>'
 DROP_REQUEST = {"host", "content-length", "accept-encoding", "connection"}
 DROP_RESPONSE = {"content-length", "content-encoding", "transfer-encoding", "connection"}
@@ -88,6 +90,10 @@ def not_found() -> JSONResponse:
 def embed_js():
     body = EMBED.read_text("utf-8") if EMBED.exists() else "// Fit-it widget not built yet\n"
     return Response(body, media_type="application/javascript")
+
+
+if UI.is_dir():  # not built: /fitit/ui/ falls through to the core-namespace 404
+    app.mount("/fitit/ui", StaticFiles(directory=UI, html=True))
 
 
 @app.get("/fitit/hooks")
