@@ -29,3 +29,14 @@ Every event carries `user` (string, or `null` if anonymous).
 | `hook.toggled` | `user`, `hook`, `enabled` | Through `POST /fitit/hooks/{name}/toggle` |
 | `hook.deleted` | `user`, `hook` | Through `DELETE /fitit/hooks/{name}` or the `delete_hook` tool |
 | `agent.answer` | `user`, `text` | The agent's final answer for a message |
+
+## Minor additions (iteration 02)
+
+Additive; nothing in v1 changes. To be confirmed by the traceability owner before the items that emit them merge.
+
+| Kind | Fields | Emitted when | Item |
+|---|---|---|---|
+| `hook.restored` (new) | `user`, `hook`, `version` | `undo_hook` restored a version, through `POST /fitit/hooks/{name}/undo` or the agent's `undo_hook` tool | HS2, AG2 |
+| `agent.answer` (new fields) | `input_tokens`, `output_tokens` (integers) | As before | AG2 |
+
+From iteration 02, `hook.applied` carries the `ms` and `logs` of that hook alone, as this table always said; v1 of the core sent the chain's totals.
