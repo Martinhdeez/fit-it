@@ -22,7 +22,9 @@ Architecture diagrams live in `.artifacts/pages/` (open the HTML files in a brow
 Hackathon prototype (GDG Coruña, October 2026). `backend/` holds the first iteration: a per-user hook pipeline with an AST guard and fail-closed execution.
 
 ```bash
-cd backend
-uv run python check.py                # self-check
-uv run uvicorn main:app --reload      # API on :8000
+export ANTHROPIC_API_KEY=...                            # in your shell, never in a file
+docker compose up --build                               # API on :8000
+docker compose run --rm core uv run python check.py     # self-check
 ```
+
+Contribution rules (Git Flow, Conventional Commits, PRs) are in `AGENTS.md`.
