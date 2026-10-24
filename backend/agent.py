@@ -86,7 +86,7 @@ def run(data, ctx):
   attribute starting with f_, gi_, cr_, ag_, tb_ or co_. Use f-strings, dict.get, isinstance and if checks instead.
 - For the current date or time use date.today() and datetime.now(); never call the app for it.
 - Only these names exist: len sum min max abs round sorted reversed any all enumerate zip range map filter str int
-  float bool list dict set tuple isinstance, plus date, datetime, timedelta (from the datetime module) and math.
+  float bool list dict set tuple isinstance next iter, plus date, datetime, timedelta (from the datetime module) and math.
 - If the hook raises, the user's request fails closed, so handle missing keys and None values.
 """
 

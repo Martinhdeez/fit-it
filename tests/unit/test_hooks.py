@@ -444,3 +444,11 @@ def test_hook_reads_ctx_request():
     hooks.save_hook("u1", "double_a", code)
     run = lambda req: hooks.run_hooks("u1", "POST", "/m", 3, hooks.Ctx("u1", Api(), req))[0]
     assert (run({"form": {"doc": {"name": "A"}}}), run({"form": {"doc": {"name": "B"}}}), run(None)) == (6, 3, 3)
+
+
+def test_next_and_iter_are_allowed():
+    code = 'ROUTE = "GET /api/x"\ndef run(data, ctx):\n    return next(iter({"EUR": 5}.items()))\n'
+    hooks.check_code(code)
+    scope = {"__builtins__": hooks.SAFE_BUILTINS, **hooks.SCOPE_VALUES}
+    exec(compile(code, "<hook>", "exec"), scope)
+    assert scope["run"](None, None) == ("EUR", 5)
