@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fit-it · presentación · landing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Paleta de landing/index.html (rama feature/landing-page). */
+  --paper: #08080c;
+  --paper-2: #13131c;
+  --paper-3: #1a1a26;
+  --ink: #f3f3f7;
+  --ink-soft: #a3a3b5;
+  --ink-faint: #6e6e82;
+  --line: rgba(255, 255, 255, .14);
+  --clay: #8b7bff;
+  --clay-soft: #c4b5ff;
+  --moss: #4fd1c5;
+  --moss-soft: #12312e;
+  --mustard: #8fb8ff;
+  --widget: #1c1b19;
+  --widget-2: #262522;
+  --widget-line: #34322e;
+  --widget-ink: #edebe7;
+  --widget-soft: #a9a59d;
+  --on: #4cc47e;
+  --erp-purple: #443691;
+  --serif: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --sans: "Geist", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #08080c; }
+body { font-family: var(--sans); color: var(--ink); -webkit-font-smoothing: antialiased; }
+body::after { content: none; }
+code { font-family: var(--mono); font-size: .86em; }
+
+/* ---------- Stage ---------- */
+.stage { position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px; overflow: hidden; transform-origin: center; box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .55); background: radial-gradient(50% 42% at 78% 0%, rgba(139, 123, 255, .28), transparent 70%), radial-gradient(36% 40% at 0% 100%, rgba(79, 209, 197, .14), transparent 72%), #08080c; }
+.stage::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 56px 56px; mask-image: radial-gradient(62% 55% at 50% 18%, #000 12%, transparent 78%); }
+.slide { z-index: 1; }
+.slide {
+  position: absolute; inset: 0; padding: 86px 110px 110px;
+  opacity: 0; visibility: hidden; transform: translateX(90px) rotate(.5deg);
+  transition: opacity .7s var(--ease), transform 1s var(--ease), visibility 0s 1s;
+}
+.slide.active { opacity: 1; visibility: visible; transform: none; transition: opacity .7s var(--ease), transform 1s var(--ease), visibility 0s; }
+.slide.past { transform: translateX(-90px) rotate(-.5deg); }
+.slide .a { opacity: 0; transform: translateY(34px) rotate(var(--r, 0deg)); transition: opacity .3s, transform .3s; }
+.slide.active .a { opacity: 1; transform: rotate(var(--r, 0deg)); transition: opacity .9s var(--ease), transform 1.1s var(--ease); transition-delay: calc(var(--i, 0) * 110ms + 250ms); }
+
+.eyebrow { font: 500 17px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--clay); display: inline-flex; align-items: center; gap: 14px; }
+.eyebrow::before { content: ""; width: 40px; height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px); }
+h2 { font: 600 68px/1.05 var(--serif); letter-spacing: -.03em; margin: 22px 0 0; max-width: 22ch; }
+h2 em, h1 em { font-style: italic; color: var(--clay); font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1; }
+.lede { font-size: 27px; line-height: 1.5; color: var(--ink-soft); max-width: 46ch; margin: 26px 0 0; }
+.lede b { color: var(--ink); font-weight: 600; }
+
+.blob { position: absolute; pointer-events: none; z-index: 0; }
+.slide > *:not(.blob) { position: relative; z-index: 1; }
+
+/* ---------- Chrome: progress, counter, notes ---------- */
+.ui { position: fixed; z-index: 60; }
+.progress { left: 0; right: 0; bottom: 0; height: 26px; pointer-events: none; }
+.progress .track, .progress .fill { position: absolute; left: 0; bottom: 11px; height: 3px; }
+.progress .track { right: 0; background: rgba(255, 255, 255, .12); }
+.progress .fill { background: var(--clay); transition: width .9s var(--ease); }
+.progress .needle { position: absolute; bottom: 2px; width: 22px; height: 22px; margin-left: -4px; transition: left .9s var(--ease); }
+.controls { right: 22px; bottom: 30px; display: flex; align-items: center; gap: 8px; font: 500 14px/1 var(--mono); color: var(--ink-soft); }
+.controls button { width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--ink-soft); background: color-mix(in srgb, var(--paper) 85%, transparent); color: var(--ink); cursor: pointer; display: grid; place-items: center; transition: transform .4s var(--spring), background .3s; }
+.controls button:hover { transform: scale(1.08); background: var(--paper); }
+.controls svg { width: 16px; height: 16px; }
+.controls .count { padding: 0 8px; min-width: 70px; text-align: center; }
+.hint { left: 22px; bottom: 34px; font: 400 13px/1 var(--mono); color: var(--ink-faint); transition: opacity .6s; }
+.notes {
+  left: 50%; bottom: 52px; width: min(860px, 92vw); transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  background: var(--ink); color: #e8e4da; border-radius: 16px; padding: 18px 22px; font: 400 16px/1.55 var(--sans);
+  box-shadow: 0 20px 40px -20px rgba(0, 0, 0, .5); transition: opacity .35s, transform .45s var(--ease);
+}
+.notes.show { opacity: 1; transform: translate(-50%, 0); }
+.notes small { display: block; font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--clay-soft); margin-bottom: 8px; }
+
+/* ---------- 1 · Cover ---------- */
+.cover { display: flex; flex-direction: column; justify-content: center; }
+.logo-big { display: flex; align-items: center; gap: 16px; font: 600 40px/1 var(--sans); letter-spacing: -.03em; }
+.logo-big .app-mark, .logo-big .land-mark { width: 44px; height: 44px; display: block; }
+.needle-g { transform-origin: 15px 15px; animation: sew 4.5s var(--ease) infinite; }
+@keyframes sew { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-14deg) translateY(-1px); } 86% { transform: rotate(6deg); } }
+.cover h1 { font: 600 112px/1.02 var(--serif); letter-spacing: -.04em; margin: 46px 0 0; max-width: 14ch; }
+.cover h1 em { position: relative; display: inline-block; }
+.cover h1 em svg { position: absolute; left: -2%; bottom: -.12em; width: 104%; height: .3em; overflow: visible; }
+.cover h1 em svg path { stroke-dasharray: 320; stroke-dashoffset: 320; }
+.slide.active h1 em svg path { animation: draw 1.4s var(--ease) 1.1s forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.cover .lede { max-width: 40ch; }
+.cover .foot { position: absolute; left: 110px; right: 110px; bottom: 70px; display: flex; justify-content: space-between; font: 500 16px/1 var(--mono); color: var(--ink-faint); border-top: 1.5px dashed var(--line); padding-top: 22px; }
+
+/* ---------- 2 · Problem notes ---------- */
+.board { position: relative; height: 470px; margin-top: 30px; }
+.note {
+  position: absolute; width: 330px; padding: 26px 26px 30px; font: 400 27px/1.25 var(--serif); font-variation-settings: "opsz" 48, "SOFT" 100;
+  background: #262522; color: var(--ink); box-shadow: 0 14px 22px -14px rgba(0, 0, 0, .6);
+  border: 1px solid var(--line); border-radius: 4px 4px 14px 4px;
+}
+.note::before { content: ""; position: absolute; top: -12px; left: 50%; width: 90px; height: 26px; margin-left: -45px; background: color-mix(in srgb, var(--clay) 55%, transparent); transform: rotate(-3deg); }
+.note small { display: block; font: 500 13px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin-top: 16px; }
+.slide.active .note { animation: bob 6s ease-in-out infinite; animation-delay: calc(var(--i) * -1.3s); }
+@keyframes bob { 50% { translate: 0 -7px; } }
+.note.n2 { background: #1d2a22; } .note.n3 { background: #1c2830; } .note.n4 { background: #26243a; } .note.n5 { background: #262522; }
+
+/* ---------- 3 · Versus ---------- */
+.versus { display: grid; grid-template-columns: 1.2fr 1fr; gap: 40px; margin-top: 32px; }
+.lane { border-radius: 30px 36px 28px 40px; padding: 28px 34px 24px; }
+.lane.today { background: var(--paper-2); border: 1.5px solid var(--line); }
+.lane.fitit { background: #102028; color: var(--ink); border: 1px solid #1e4d66; }
+.lane h3 { font: 500 32px/1.1 var(--serif); margin: 0 0 20px; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.lane h3 small { display: block; font: 500 15px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px; color: var(--clay); }
+.lane.fitit h3 small { color: var(--on); }
+.chain { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.chain li { position: relative; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 11px 18px 11px 52px; border-radius: 14px; background: var(--paper); border: 1.5px solid var(--line); font-size: 20px; }
+.lane.fitit .chain li { background: #17303a; border-color: #245066; color: var(--ink); }
+.chain li::before { content: ""; position: absolute; left: 20px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; border: 2px solid var(--ink-faint); }
+.lane.fitit .chain li::before { border-color: var(--on); background: var(--on); }
+.chain li + li::after { content: ""; position: absolute; left: 26px; top: -13px; height: 12px; border-left: 2px dotted var(--ink-faint); }
+.lane.fitit .chain li + li::after { border-color: var(--on); }
+.chain .wait { flex: none; font: 500 14px/1.6 var(--mono); color: var(--ink-faint); }
+.outcome { margin: 18px 0 0; font: italic 400 25px/1.3 var(--serif); }
+.lane.today .outcome { color: #ff9a8f; }
+.lane.today .outcome s { text-decoration-thickness: 2px; }
+.lane.fitit .outcome { color: var(--clay-soft); }
+
+/* ---------- 4 · Idea ---------- */
+.idea { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 70px; position: relative; }
+.idea .thread { position: absolute; left: 12%; right: 12%; top: 58px; height: 3px; background: repeating-linear-gradient(90deg, var(--clay) 0 10px, transparent 10px 18px); clip-path: inset(0 100% 0 0); }
+.slide.active .idea .thread { animation: sewIn 1.8s var(--ease) .6s forwards; }
+@keyframes sewIn { to { clip-path: inset(0 0 0 0); } }
+.idea article { text-align: center; padding: 0 30px; }
+.knot { width: 116px; height: 116px; margin: 0 auto 28px; border-radius: 50% 46% 52% 48%; background: var(--paper); border: 2px solid var(--ink); display: grid; place-items: center; font: italic 500 46px/1 var(--serif); position: relative; z-index: 1; animation: morph 9s ease-in-out infinite; }
+.idea article:nth-child(3) .knot { animation-delay: -3s; background: var(--moss); color: #0f1a13; border-color: var(--moss); }
+.idea article:nth-child(4) .knot { animation-delay: -6s; background: var(--clay); color: #0b1a22; border-color: var(--clay); }
+@keyframes morph { 50% { border-radius: 42% 58% 46% 54%; } }
+.idea h3 { font: 500 36px/1.15 var(--serif); margin: 0 0 12px; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.idea p { margin: 0 auto; font-size: 21px; color: var(--ink-soft); max-width: 22ch; line-height: 1.45; }
+
+/* ---------- 5 · Flow ---------- */
+.flow-card { margin-top: 40px; background: var(--paper-2); border-radius: 34px 40px 30px 44px; padding: 34px 40px 30px; border: 1.5px solid var(--line); }
+.flow svg { width: 100%; height: auto; display: block; overflow: visible; }
+.flow .node rect { fill: #262522; stroke: var(--ink-soft); stroke-width: 1.5; }
+.flow .node.core rect { fill: #0b1a22; stroke: var(--clay); }
+.flow .node text { font: 600 19px var(--sans); fill: var(--ink); }
+.flow .node .sub { font: 400 13px var(--mono); fill: var(--ink-soft); }
+.flow .node.core text { fill: var(--clay-soft); }
+.flow .node.core .sub { fill: #9ec9dc; }
+.flow .thread { fill: none; stroke: var(--ink-faint); stroke-width: 1.6; stroke-dasharray: 5 7; animation: flowDash 1.6s linear infinite; }
+.flow .thread.back { animation-direction: reverse; }
+@keyframes flowDash { to { stroke-dashoffset: -24; } }
+.flow .lbl { font: 500 13px var(--mono); fill: var(--ink-soft); }
+.flow .halo { fill: none; stroke: var(--clay); stroke-width: 2; opacity: 0; }
+.flow-steps { list-style: none; padding: 0; margin: 22px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 34px; counter-reset: s; }
+.flow-steps li { counter-increment: s; display: flex; gap: 12px; align-items: baseline; font-size: 18px; color: var(--ink-soft); line-height: 1.4; }
+.flow-steps li::before { content: counter(s, decimal-leading-zero); font: italic 400 24px/1 var(--serif); color: var(--clay); }
+.flow-steps b { color: var(--ink); font-weight: 600; }
+
+/* ---------- 6 · ERPNext demo ---------- */
+.demo-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 30px; }
+#demoSlide { padding-top: 58px; }
+.demo-head h2 { font-size: 54px; max-width: none; margin-top: 16px; }
+.case { font: 600 14px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--moss); background: #e7ecdc; border: 1.5px dashed var(--moss); padding: 9px 12px; border-radius: 999px; white-space: nowrap; }
+.persona-bar { display: flex; align-items: center; gap: 16px; margin: 18px 0 14px; }
+.persona-bar .label { font: 500 14px/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
+.personas { display: inline-flex; padding: 5px; background: var(--paper-2); border: 1.5px solid var(--line); border-radius: 999px; position: relative; }
+.personas button { position: relative; z-index: 1; border: 0; background: none; cursor: pointer; font: 600 18px/1 var(--sans); color: var(--ink-soft); padding: 11px 18px; border-radius: 999px; display: flex; align-items: center; gap: 9px; transition: color .3s; }
+.personas button[aria-pressed="true"] { color: var(--paper); }
+.personas .pill { position: absolute; z-index: 0; top: 5px; bottom: 5px; border-radius: 999px; background: var(--ink); transition: left .55s var(--spring), width .55s var(--spring); }
+.av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 700 13px/1 var(--sans); color: var(--ink); }
+.av.m { background: var(--clay-soft); }
+.av.l { background: var(--moss-soft); }
+.replay { border: 1.5px dashed var(--ink-faint); background: none; border-radius: 999px; padding: 10px 16px; font: 500 16px/1 var(--sans); color: var(--ink-soft); cursor: pointer; display: inline-flex; gap: 8px; align-items: center; transition: border-color .3s, color .3s; }
+.replay:hover { border-color: var(--clay); color: var(--clay); }
+.replay svg { width: 16px; height: 16px; }
+.caption { margin-left: auto; font: italic 400 20px/1.3 var(--serif); color: var(--ink-soft); max-width: 640px; text-align: right; transition: opacity .4s; }
+
+.window { background: #fff; border-radius: 18px; overflow: hidden; border: 1px solid #d9d2c3; box-shadow: 0 30px 60px -30px rgba(50, 40, 20, .35), 0 12px 24px -16px rgba(50, 40, 20, .25); transform: rotate(-.4deg); }
+.chrome { display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: #f3f1ed; border-bottom: 1px solid #e6e2da; }
+.dots { display: flex; gap: 7px; }
+.dots i { width: 12px; height: 12px; border-radius: 50%; background: #d8d2c6; }
+.url { flex: 1; background: #fff; border: 1px solid #e3ded4; border-radius: 8px; padding: 7px 12px; font: 400 14px/1 var(--mono); color: #6b6b6b; }
+.url b { color: #222; font-weight: 600; }
+.via { font: 600 12px/1 var(--mono); color: var(--moss); background: #eef3e7; border: 1px solid #d3dfc3; padding: 6px 8px; border-radius: 6px; }
+.desk { display: grid; grid-template-columns: 56px 1fr 390px; height: 486px; }
+.rail { border-right: 1px solid #eee; padding: 14px 0; display: flex; flex-direction: column; align-items: center; gap: 16px; background: #fafafa; }
+.rail .e { width: 28px; height: 28px; border-radius: 8px; background: #2490ef; color: #fff; font: 800 15px/28px var(--sans); text-align: center; }
+.rail i { width: 19px; height: 19px; border-radius: 5px; border: 1.6px solid #bbb; }
+.rail i.on { border-color: #333; background: #eee; }
+.rail .me { margin-top: auto; }
+.erp { padding: 12px 22px; background: #fff; color: #1f272e; font-size: 14px; min-width: 0; }
+.erp-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.erp-top h3 { margin: 0; font: 600 18px/1 var(--sans); }
+.fitted { font: 600 13px/1 var(--mono); color: var(--clay); padding: 7px 10px; border-radius: 7px; border: 1.5px dashed var(--clay); background: #fdf3ee; opacity: 0; transform: scale(.7) rotate(-6deg); transition: opacity .4s, transform .6s var(--spring); }
+.fitted.show { opacity: 1; transform: rotate(-2deg); }
+.banner { background: var(--erp-purple); color: #fff; border-radius: 10px; padding: 11px 18px; display: flex; justify-content: space-between; align-items: flex-end; }
+.banner small { font: 600 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; opacity: .75; }
+.banner strong { display: block; font: 700 21px/1.2 var(--sans); margin: 6px 0 2px; }
+.banner p { margin: 0; opacity: .8; font-size: 12px; }
+.banner .meta { text-align: right; font-size: 12px; opacity: .85; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 9px 0 9px; }
+.kpi { border-radius: 9px; padding: 7px 12px; border: 1px solid #ececf3; }
+.kpi span { display: block; font-size: 12px; color: #6b7280; }
+.kpi b { font: 700 17px/1.4 var(--sans); }
+.kpi:nth-child(1) { background: #f1effb; color: #443691; }
+.kpi:nth-child(2) { background: #eef6f1; color: #2f6d4f; }
+.kpi:nth-child(3) { background: #eef2fb; color: #2f4f8a; }
+.kpi:nth-child(4) { background: #fdf3e6; color: #9a5b14; }
+.list-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.list-head h4 { margin: 0; font: 600 15px/1 var(--sans); }
+.list-head span { font: 400 12px var(--mono); color: #8b8f94; }
+table.inv { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.inv th { text-align: left; font-weight: 500; color: #8b8f94; padding: 6px 6px; border-bottom: 1px solid #eee; }
+.inv td { padding: 4px 6px; border-bottom: 1px solid #f3f3f3; white-space: nowrap; height: 34px; }
+.inv .num { text-align: right; font-variant-numeric: tabular-nums; }
+.status { font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 999px; }
+.status.paid { background: #e7f5ec; color: #2f6d4f; }
+.status.unpaid { background: #fdecec; color: #b03a3a; }
+.amt { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.amt .old { font-size: 11px; color: #a0a4a8; text-decoration: line-through; height: 0; opacity: 0; overflow: hidden; transition: opacity .4s, height .4s var(--ease); }
+.amt.changed .old { opacity: 1; height: 1.1em; }
+.amt.changed .new { color: var(--clay); font-weight: 700; }
+.amt.changed::after { content: ""; position: absolute; left: -4px; right: -4px; bottom: -3px; height: 2px; background: repeating-linear-gradient(90deg, var(--clay) 0 4px, transparent 4px 7px); animation: stitchIn .7s var(--ease) both; }
+@keyframes stitchIn { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.erp.reloading { animation: reload .7s var(--ease); }
+@keyframes reload { 35% { opacity: .25; filter: blur(1px); } }
+
+.widget { background: var(--widget); color: var(--widget-ink); display: flex; flex-direction: column; border-left: 1px solid #111; font: 400 14px/1.5 var(--sans); min-width: 0; }
+.w-head { display: flex; align-items: center; gap: 9px; padding: 13px 15px; border-bottom: 1px solid var(--widget-line); }
+.w-head .app-mark { width: 22px; height: 22px; display: block; flex: none; }
+.w-tabs { margin-left: auto; display: flex; gap: 3px; font-size: 12px; color: var(--widget-soft); }
+.w-tabs span { padding: 4px 8px; border-radius: 6px; }
+.w-tabs span.on { background: var(--widget-2); color: var(--widget-ink); }
+.conv-row { display: flex; gap: 6px; padding: 8px 12px 0; }
+.conv-row span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--widget-soft); background: #151412; border: 1px solid var(--widget-line); border-radius: 8px; padding: 5px 8px; }
+.conv-row span.on { color: var(--widget-ink); border-color: #4a4844; }
+.mic { width: 32px; height: 32px; border-radius: 50%; color: var(--widget-soft); display: grid; place-items: center; flex: none; }
+.mic svg { width: 16px; height: 16px; }
+.w-body { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 9px; overflow: hidden; }
+.msg { max-width: 92%; padding: 9px 13px; border-radius: 15px; animation: pop .5s var(--spring) both; }
+.msg.user { align-self: flex-end; background: #2f2d2a; border-bottom-right-radius: 4px; }
+.msg.bot { align-self: flex-start; color: var(--widget-soft); padding-left: 0; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.96); } }
+.steps { display: flex; flex-direction: column; gap: 5px; }
+.step { display: flex; align-items: center; gap: 9px; font: 400 12.5px/1.3 var(--mono); color: var(--widget-soft); animation: pop .4s var(--ease) both; }
+.step i { width: 15px; height: 15px; border-radius: 50%; border: 1.5px solid #5a5650; flex: none; position: relative; }
+.step.run i { border-color: var(--on); border-right-color: transparent; animation: spin .8s linear infinite; }
+.step.ok i { border-color: var(--on); background: var(--on); }
+.step.ok i::after { content: ""; position: absolute; left: 4px; top: 1.5px; width: 3.5px; height: 7px; border: solid #0f1a13; border-width: 0 1.7px 1.7px 0; transform: rotate(45deg); }
+.step em { font-style: normal; color: var(--widget-ink); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.diff { font: 400 11.5px/1.55 var(--mono); background: #151412; border: 1px solid var(--widget-line); border-radius: 10px; padding: 9px 11px; animation: pop .5s var(--ease) both; white-space: pre; overflow: hidden; }
+.diff .f { color: var(--widget-soft); }
+.diff .ad { color: #86e0a8; background: rgba(76, 196, 126, .1); display: block; }
+.saved { font: 600 12.5px/1 var(--mono); color: var(--on); }
+.empty { margin: auto; text-align: center; color: var(--widget-soft); font-size: 14px; max-width: 24ch; }
+.empty b { display: block; color: var(--widget-ink); font-size: 15px; margin-bottom: 5px; }
+.w-input { margin: 12px; display: flex; align-items: center; gap: 9px; background: var(--widget-2); border: 1px solid var(--widget-line); border-radius: 15px; padding: 9px 10px 9px 14px; min-height: 50px; }
+.w-input .text { flex: 1; color: var(--widget-ink); font-size: 14px; }
+.w-input .text:empty::before { content: attr(data-placeholder); color: #77736c; }
+.caret { display: inline-block; width: 1.5px; height: 1em; background: var(--on); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.send { width: 32px; height: 32px; border-radius: 10px; background: #3a3833; color: #38bdf8; display: grid; place-items: center; transition: background .3s, color .3s; flex: none; }
+.send.hot { background: #38bdf8; color: #0b1a22; }
+.send svg { width: 15px; height: 15px; }
+
+/* ---------- 7 · Hook ---------- */
+.hook-grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 70px; align-items: center; margin-top: 50px; }
+.quote { font: italic 300 46px/1.18 var(--serif); font-variation-settings: "opsz" 96, "SOFT" 100, "WONK" 1; margin: 0 0 34px; padding-left: 28px; position: relative; }
+.quote::before { content: ""; position: absolute; left: 0; top: .2em; bottom: .2em; width: 4px; background: repeating-linear-gradient(180deg, var(--clay) 0 8px, transparent 8px 14px); }
+.quote cite { display: block; font: normal 500 16px/1 var(--mono); color: var(--ink-faint); margin-top: 18px; }
+.ticks { list-style: none; padding: 0; margin: 0; display: grid; gap: 16px; }
+.ticks li { display: flex; gap: 16px; align-items: baseline; font-size: 22px; color: var(--ink-soft); line-height: 1.4; }
+.ticks li::before { content: ""; flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--moss); transform: translateY(-2px); }
+.ticks b { color: var(--ink); font-weight: 600; }
+.swatch {
+  --z: 12px;
+  -webkit-mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--z)) 51% repeat-x, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--z)) 51% repeat-x;
+  mask: conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--z)) 51% repeat-x, conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--z)) 51% repeat-x;
+}
+.code-wrap { position: relative; }
+.code { background: #0c0b0a; color: var(--ink); padding: 46px 40px; font: 400 19px/1.75 var(--mono); filter: drop-shadow(0 20px 26px rgba(0, 0, 0, .45)); border: 1px solid var(--line); }
+.code pre { margin: 0; white-space: pre; }
+.code .k { color: #e9a77f; } .code .s { color: #b9d39a; } .code .c { color: #8a958a; font-style: italic; } .code .n { color: #f0d28a; }
+.pin { position: absolute; z-index: 2; font: 500 15px/1.2 var(--mono); background: #262522; color: var(--ink); border: 1.5px solid var(--clay); border-radius: 10px; padding: 9px 12px; box-shadow: 4px 4px 0 #0b3a52; white-space: nowrap; }
+.pin.p1 { top: -20px; right: 26px; transform: rotate(3deg); }
+.pin.p2 { bottom: -22px; left: 36px; transform: rotate(-2.5deg); border-color: var(--moss); box-shadow: 4px 4px 0 #143024; }
+.example-tag { position: absolute; z-index: 2; top: -20px; left: 30px; font: 600 13px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--moss); background: #e7ecdc; border: 1.5px dashed var(--moss); padding: 8px 11px; border-radius: 999px; transform: rotate(-2deg); }
+
+/* ---------- 8 · Share ---------- */
+.share { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 80px; position: relative; }
+.share .thread { position: absolute; left: 12%; right: 12%; top: 58px; height: 3px; background: repeating-linear-gradient(90deg, var(--clay) 0 10px, transparent 10px 18px); clip-path: inset(0 100% 0 0); }
+.slide.active .share .thread { animation: sewIn 1.8s var(--ease) .6s forwards; }
+.share article { text-align: center; padding: 0 34px; }
+.share h3 { font: 500 34px/1.15 var(--serif); margin: 0 0 12px; }
+.share p { margin: 0 auto; font-size: 21px; color: var(--ink-soft); max-width: 24ch; line-height: 1.45; }
+
+/* ---------- 9 · Any app ---------- */
+.apps-grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 70px; margin-top: 46px; align-items: start; }
+.reqs { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.reqs li { display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start; padding: 16px 0; border-bottom: 1.5px dashed var(--line); font-size: 22px; line-height: 1.4; color: var(--ink-soft); }
+.reqs li b { color: var(--ink); font-weight: 600; display: block; }
+.reqs .ck { width: 30px; height: 30px; border-radius: 50%; background: var(--moss); display: grid; place-items: center; margin-top: 2px; }
+.reqs .ck.opt { background: transparent; border: 2px dashed var(--moss); }
+.reqs .ck svg { width: 15px; height: 15px; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.tile { background: var(--paper-2); border: 1.5px solid var(--line); border-radius: 22px 26px 20px 28px; padding: 22px 22px 20px; transition: transform .6s var(--spring); }
+.tile:hover { transform: translateY(-4px) rotate(-.8deg); }
+.tile h4 { margin: 0 0 6px; font: 500 26px/1.15 var(--serif); }
+.tile p { margin: 0 0 14px; font-size: 17px; color: var(--ink-soft); line-height: 1.4; }
+.badge { display: inline-block; font: 600 12px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 6px 9px; border-radius: 999px; }
+.badge.ok { background: var(--moss); color: #0f1a13; }
+.badge.fit { border: 1.5px dashed var(--ink-faint); color: var(--ink-soft); }
+.tile.tested { box-shadow: 5px 6px 0 #143024; border-color: var(--moss); }
+
+/* ---------- 10 · Principles ---------- */
+.principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 26px; margin-top: 56px; }
+.principle { background: var(--paper-2); border-top: 4px solid var(--clay); padding: 46px 30px 42px; min-height: 400px; transition: transform .7s var(--spring); }
+.principle:nth-child(2) { border-top-color: var(--moss); }
+.principle:nth-child(3) { border-top-color: #ff9a8f; }
+.principle:nth-child(4) { border-top-color: var(--mustard); }
+.principle:hover { transform: translateY(-8px); }
+.principle svg { width: 58px; height: 58px; margin-bottom: 22px; }
+.principle svg [stroke="#1e2a22"] { stroke: var(--ink); }
+.principle svg [fill="#38bdf8"] { fill: var(--clay); }
+.principle h3 { font: 500 31px/1.12 var(--serif); margin: 0 0 14px; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.principle p { margin: 0; color: var(--ink-soft); font-size: 20px; line-height: 1.45; }
+
+/* ---------- 11 · Value ---------- */
+.value { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 54px; }
+.vcard { background: var(--paper-2); border: 1.5px solid var(--line); border-radius: 26px 30px 24px 34px; padding: 34px 32px; box-shadow: 8px 9px 0 color-mix(in srgb, var(--c, var(--clay)) 45%, #000); transition: transform .6s var(--spring), box-shadow .6s var(--spring); }
+.vcard:hover { transform: translate(-3px, -4px) rotate(-.6deg); box-shadow: 12px 14px 0 var(--c, var(--clay)); }
+.vcard .who { font: 500 14px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); }
+.vcard h3 { font: 500 32px/1.12 var(--serif); margin: 14px 0 22px; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.vcard ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 13px; }
+.vcard li { padding-left: 26px; position: relative; color: var(--ink-soft); font-size: 19px; line-height: 1.42; }
+.vcard li::before { content: ""; position: absolute; left: 0; top: .66em; width: 14px; height: 2.5px; background: repeating-linear-gradient(90deg, var(--c, var(--clay)) 0 4px, transparent 4px 7px); }
+
+/* ---------- 12 · Compare ---------- */
+.compare-wrap { margin-top: 46px; border-radius: 26px; border: 1.5px solid var(--line); background: var(--paper-2); overflow: hidden; }
+.compare { width: 100%; border-collapse: collapse; font-size: 20px; }
+.compare th, .compare td { padding: 18px 22px; text-align: left; border-bottom: 1.5px dashed var(--line); vertical-align: top; }
+.compare thead th { font: 500 14px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); background: var(--paper-2); border-bottom: 1.5px solid var(--line); }
+.compare tbody th { font: 500 23px/1.2 var(--serif); }
+.compare td { color: var(--ink-soft); }
+.compare .yes { color: var(--moss); font-weight: 700; }
+.compare .no { color: #ff9a8f; font-weight: 700; }
+.compare tr.us { background: #173224; }
+.compare tr.us th::after { content: " ✂"; color: var(--clay); }
+.compare tr:last-child th, .compare tr:last-child td { border-bottom: 0; }
+
+/* ---------- 13 · Keys ---------- */
+.keys { list-style: none; padding: 0; margin: 44px 0 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 70px; counter-reset: k; }
+.keys li { counter-increment: k; display: grid; grid-template-columns: 74px 1fr; gap: 16px; padding: 24px 0; border-top: 1.5px dashed var(--line); }
+.keys li::before { content: counter(k); font: 500 56px/.9 var(--mono); color: var(--clay); }
+.keys h3 { margin: 0 0 6px; font: 600 24px/1.25 var(--sans); }
+.keys p { margin: 0; color: var(--ink-soft); font-size: 19px; line-height: 1.45; }
+
+/* ---------- 14 · Pitch ---------- */
+.pitch { margin-top: 38px; position: relative; background: var(--paper-2); border-radius: 40px 32px 46px 34px; padding: 58px 70px 46px; border: 1.5px solid var(--line); isolation: isolate; }
+.pitch::before { content: ""; position: absolute; inset: 16px; border: 2px dashed color-mix(in srgb, var(--clay) 45%, transparent); border-radius: 30px 24px 36px 26px; z-index: -1; }
+.timer { display: inline-flex; align-items: center; gap: 10px; font: 500 15px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--clay); }
+.timer svg { width: 22px; height: 22px; }
+.timer .hand { transform-origin: 9px 11px; }
+.slide.active .timer .hand { animation: tick 30s linear forwards; }
+@keyframes tick { to { transform: rotate(360deg); } }
+.pitch-text { font: 400 34px/1.4 var(--serif); letter-spacing: -.02em; margin: 22px 0 0; }
+.pitch-text span { opacity: .16; transition: opacity .7s var(--ease); }
+.pitch-text span.lit { opacity: 1; }
+.pitch-text em { color: var(--clay); font-style: italic; font-variation-settings: "opsz" 96, "SOFT" 100, "WONK" 1; }
+.pilot { display: flex; align-items: center; justify-content: space-between; gap: 30px; margin-top: 36px; padding-top: 26px; border-top: 1.5px dashed var(--line); font-size: 21px; color: var(--ink-soft); }
+.pilot b { color: var(--ink); }
+
+/* ---------- 15 · Close ---------- */
+.close { background: radial-gradient(50% 50% at 80% 20%, rgba(139, 123, 255, .22), transparent 70%), #08080c; color: var(--ink); display: flex; flex-direction: column; justify-content: center; }
+.close .eyebrow { color: var(--clay); }
+.close h2 { font-size: 96px; line-height: 1.02; font-weight: 600; max-width: 16ch; color: var(--ink); }
+.close h2 em { color: var(--clay-soft); }
+.close .foot { position: absolute; left: 110px; right: 110px; bottom: 70px; display: flex; justify-content: space-between; font: 500 16px/1 var(--mono); color: #9ea596; border-top: 1.5px dashed #3b4a3f; padding-top: 22px; }
+.close .logo-big { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; transition-delay: 0ms !important; }
+  .pitch-text span { opacity: 1; }
+}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+
+  <!-- 1 · Portada -->
+  <section class="slide cover" data-notes="Presentaos y lanzad la idea en una frase: cualquier aplicación web, adaptada a cada persona que la usa, sin tocar su código.">
+    <svg class="blob" viewBox="0 0 600 520" style="width:760px; right:-180px; top:-120px; color:#8b7bff; opacity:.2" aria-hidden="true"><path fill="currentColor"><animate attributeName="d" dur="18s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.33;.66;1" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1" values="M300,60 C420,50 540,140 530,260 C520,380 420,470 300,460 C170,450 60,380 70,250 C80,130 180,70 300,60 Z;M310,40 C450,70 560,160 520,290 C490,400 390,480 280,450 C150,420 50,340 80,220 C110,110 190,30 310,40 Z;M290,70 C400,30 520,120 545,240 C570,360 450,450 320,470 C190,490 80,400 60,280 C45,170 170,100 290,70 Z;M300,60 C420,50 540,140 530,260 C520,380 420,470 300,460 C170,450 60,380 70,250 C80,130 180,70 300,60 Z"/></path></svg>
+    <svg class="blob" viewBox="0 0 600 520" style="width:420px; left:-170px; bottom:-60px; color:#4fd1c5; opacity:.16" aria-hidden="true"><path fill="currentColor"><animate attributeName="d" dur="23s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".45 0 .55 1;.45 0 .55 1" values="M290,70 C400,30 520,120 545,240 C570,360 450,450 320,470 C190,490 80,400 60,280 C45,170 170,100 290,70 Z;M300,60 C420,50 540,140 530,260 C520,380 420,470 300,460 C170,450 60,380 70,250 C80,130 180,70 300,60 Z;M290,70 C400,30 520,120 545,240 C570,360 450,450 320,470 C190,490 80,400 60,280 C45,170 170,100 290,70 Z"/></path></svg>
+    <div class="logo-big a" style="--i:0">
+      <svg class="land-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8h8M8 12h5M8 16h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="16" r="2" fill="#8b7bff"/></svg>
+      Fit-it
+    </div>
+    <h1 class="a" style="--i:1">Tu aplicación, hecha a <em>medida<svg viewBox="0 0 240 16" preserveAspectRatio="none" aria-hidden="true"><path d="M2 10 C 40 3, 90 15, 140 7 S 220 4, 238 9" fill="none" stroke="#8b7bff" stroke-width="3" stroke-linecap="round"/></svg></em> de cada persona.</h1>
+    <p class="lede a" style="--i:2">Un proxy que adapta <b>cualquier aplicación web</b> a lo que pide cada usuario, con sus propias palabras. Sin tocar su código.</p>
+    <div class="foot a" style="--i:3"><span>Kripta-Studios · Martinhdeez · Migueldgq</span><span>Hackathon GDG Coruña · octubre de 2026</span></div>
+  </section>
+
+  <!-- 2 · Problema -->
+  <section class="slide" data-notes="Todos usamos software que casi nos encaja. Leed dos o tres notas en voz alta: son peticiones reales de la demo. Ninguna justifica un desarrollo para una sola persona.">
+    <span class="eyebrow a" style="--i:0">El problema</span>
+    <h2 class="a" style="--i:1">Todo el mundo tiene <em>su lista</em> de pequeños cambios.</h2>
+    <div class="board">
+      <div class="note a" style="--i:2; --r:-4deg; left:0; top:40px">Aplica un 15% de descuento a las facturas del viernes<small>Gerencia</small></div>
+      <div class="note n2 a" style="--i:3; --r:3deg; left:350px; top:150px">Avísame de los pacientes con más de 500 € de deuda<small>Recepción</small></div>
+      <div class="note n3 a" style="--i:4; --r:-2deg; left:700px; top:20px">Quiero una página con la deuda pendiente por médico<small>Dirección</small></div>
+      <div class="note n4 a" style="--i:5; --r:4deg; left:1040px; top:130px">Pon los nombres de los clientes en mayúsculas<small>Comercial</small></div>
+      <div class="note n5 a" style="--i:6; --r:-1.5deg; left:1090px; top:-150px; width:270px; font-size:23px">Oculta esa columna que no uso<small>Todo el mundo</small></div>
+    </div>
+  </section>
+
+  <!-- 3 · Hoy vs Fit-it -->
+  <section class="slide" data-notes="Hoy cada cambio pasa por ticket, priorización, sprint y despliegue. Para una sola persona casi nunca compensa, así que no se hace. Con Fit-it lo pide y lo tiene en la misma conversación.">
+    <span class="eyebrow a" style="--i:0">Por qué no se hacen</span>
+    <h2 class="a" style="--i:1">Un ticket, un sprint, un despliegue. <em>Para una persona.</em></h2>
+    <div class="versus">
+      <div class="lane today a" style="--i:2; --r:-.6deg">
+        <h3><small>Hoy</small>El camino de un cambio pequeño</h3>
+        <ol class="chain">
+          <li>La usuaria necesita ver algo distinto<span class="wait">día 1</span></li>
+          <li>Abre un ticket al equipo de la aplicación<span class="wait">espera</span></li>
+          <li>Compite con todo lo demás en la priorización<span class="wait">espera</span></li>
+          <li>Alguien lo desarrolla dentro de la aplicación<span class="wait">sprint</span></li>
+          <li>Pruebas y despliegue para todos los usuarios<span class="wait">sprint</span></li>
+        </ol>
+        <p class="outcome">Y para una sola persona, <s>casi nunca compensa</s>.</p>
+      </div>
+      <div class="lane fitit a" style="--i:3; --r:.8deg">
+        <h3><small>Con Fit-it</small>El mismo cambio</h3>
+        <ol class="chain">
+          <li>Lo pide en un chat, con sus palabras</li>
+          <li>Un agente escribe el cambio y lo prueba con sus datos</li>
+          <li>Lo usa. Solo ella. Lo deshace con una frase</li>
+        </ol>
+        <p class="outcome">En la misma conversación, sin tocar la aplicación y sin pasar por el backlog.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · La idea -->
+  <section class="slide" data-notes="La idea en tres pasos. Insistid en el tercero: el cambio es solo de quien lo pidió. Sus compañeros siguen viendo la aplicación original.">
+    <span class="eyebrow a" style="--i:0">La idea</span>
+    <h2 class="a" style="--i:1">Un sastre delante de <em>cualquier aplicación.</em></h2>
+    <div class="idea">
+      <span class="thread" aria-hidden="true"></span>
+      <article class="a" style="--i:2"><div class="knot">1</div><h3>Lo pides</h3><p>En un chat que aparece dentro de la propia aplicación.</p></article>
+      <article class="a" style="--i:3"><div class="knot">2</div><h3>Se cose</h3><p>Un agente lo convierte en un pequeño hook de Python, revisado y probado.</p></article>
+      <article class="a" style="--i:4"><div class="knot">3</div><h3>Es tuyo</h3><p>Se aplica en cada petición, pero solo para ti.</p></article>
+    </div>
+  </section>
+
+  <!-- 5 · Cómo funciona -->
+  <section class="slide" data-notes="El navegador nunca habla directamente con la aplicación. Fit-it reenvía la petición con la cookie del usuario y aplica sus hooks a la respuesta. La aplicación no sabe que Fit-it existe.">
+    <span class="eyebrow a" style="--i:0">Cómo funciona</span>
+    <h2 class="a" style="--i:1">Un proxy con <em>aguja e hilo.</em></h2>
+    <p class="lede a" style="--i:2; max-width:62ch; font-size:23px">El navegador solo habla con el núcleo de Fit-it. El núcleo reenvía cada petición a la aplicación con la sesión del propio usuario y, antes de devolver la respuesta, le aplica los hooks de ese usuario.</p>
+    <div class="flow-card a" style="--i:3">
+      <div class="flow">
+        <svg viewBox="0 0 1000 250" role="img" aria-label="Navegador, núcleo de Fit-it y aplicación; la respuesta vuelve pasando por los hooks del usuario">
+          <path id="pA" class="thread" d="M200 100 C 280 50, 340 50, 400 100"/>
+          <path id="pB" class="thread" d="M600 100 C 680 50, 740 50, 800 100"/>
+          <path id="pC" class="thread back" d="M800 150 C 740 200, 680 200, 600 150"/>
+          <path id="pD" class="thread back" d="M400 150 C 340 200, 280 200, 200 150"/>
+          <text class="lbl" x="300" y="40" text-anchor="middle">cookie de sesión</text>
+          <text class="lbl" x="700" y="40" text-anchor="middle">la misma cookie, intacta</text>
+          <text class="lbl" x="700" y="230" text-anchor="middle">JSON / HTML de siempre</text>
+          <text class="lbl" x="300" y="230" text-anchor="middle">tu versión + widget de chat</text>
+          <g class="node"><rect x="40" y="75" width="160" height="100" rx="22"/><text x="120" y="120" text-anchor="middle">Navegador</text><text class="sub" x="120" y="143" text-anchor="middle">cada usuario</text></g>
+          <g class="node core"><rect x="400" y="65" width="200" height="120" rx="26"/><text x="500" y="110" text-anchor="middle">Núcleo Fit-it</text><text class="sub" x="500" y="133" text-anchor="middle">hooks · guard · traza</text><text class="sub" x="500" y="153" text-anchor="middle">por usuario</text>
+            <rect class="halo" x="394" y="59" width="212" height="132" rx="30"><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.6;.64;.7;1" values="0;0;1;0;0"/></rect></g>
+          <g class="node"><rect x="800" y="75" width="160" height="100" rx="22"/><text x="880" y="120" text-anchor="middle">Tu aplicación</text><text class="sub" x="880" y="143" text-anchor="middle">sin modificar</text></g>
+          <circle r="7" fill="#8b7bff"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.02;.17;1" calcMode="linear"><mpath href="#pA"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.02;.17;.18;1" values="0;1;1;0;0"/></circle>
+          <circle r="7" fill="#8b7bff"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.2;.36;1" calcMode="linear"><mpath href="#pB"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.2;.36;.37;1" values="0;1;1;0;0"/></circle>
+          <circle r="7" fill="#8a8f86"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.42;.58;1" calcMode="linear"><mpath href="#pC"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.42;.58;.59;1" values="0;1;1;0;0"/></circle>
+          <circle r="8" fill="#4d6a3a"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.72;.88;1" calcMode="linear"><mpath href="#pD"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.72;.88;.89;1" values="0;1;1;0;0"/></circle>
+        </svg>
+      </div>
+      <ol class="flow-steps">
+        <li><span><b>El núcleo pregunta a la app quién eres</b> y carga tus hooks.</span></li>
+        <li><span><b>La petición llega a la aplicación</b> tal y como la enviaste.</span></li>
+        <li><span><b>Tus hooks transforman la respuesta</b> y el chat se cose en la página.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- 6 · Caso de uso ERPNext -->
+  <section class="slide" id="demoSlide" data-notes="Caso de uso real: ERPNext 16 sin modificar, detrás de Fit-it. Dejad que corra la animación. Cuando aparezca Lucía, señalad que sus importes siguen siendo los originales. Podéis pulsar Marta o Lucía para cambiar de vista.">
+    <div class="demo-head">
+      <div>
+        <span class="eyebrow a" style="--i:0">Caso de uso</span>
+        <h2 class="a" style="--i:1">Marta lo pide. Su ERP cambia. <em>El de Lucía, no.</em></h2>
+      </div>
+      <span class="case a" style="--i:1">ERPNext 16 · sin modificar</span>
+    </div>
+    <div class="persona-bar a" style="--i:2">
+      <span class="label">Viendo como</span>
+      <div class="personas" role="group" aria-label="Elegir usuario">
+        <span class="pill" aria-hidden="true"></span>
+        <button type="button" data-user="marta" aria-pressed="true"><span class="av m">M</span>Marta · gerente</button>
+        <button type="button" data-user="lucia" aria-pressed="false"><span class="av l">L</span>Lucía · recepción</button>
+      </div>
+      <button type="button" class="replay" id="replay"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.7-4M2.5 2v3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Repetir</button>
+      <p class="caption" id="caption">&nbsp;</p>
+    </div>
+    <div class="window a" style="--i:3">
+      <div class="chrome">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="url"><b>localhost:8000</b>/desk/selling/fitit-overview</div>
+        <span class="via">vía Fit-it</span>
+      </div>
+      <div class="desk">
+        <nav class="rail" aria-hidden="true"><span class="e">E</span><i></i><i></i><i class="on"></i><i></i><i></i><span class="av m me" id="railAv">M</span></nav>
+        <div class="erp" id="erp">
+          <div class="erp-top"><h3>FITIT Overview</h3><span class="fitted" id="fitted">a medida · descuento_viernes v1</span></div>
+          <div class="banner">
+            <div><small>FITIT Demo Supplies / Business overview</small><strong>Your business at a glance.</strong><p>Sales, customers and daily operations in one place.</p></div>
+            <div class="meta">24 October 2026<br>Spain · EUR</div>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><span>Sales revenue</span><b>€ 8,390.00</b></div>
+            <div class="kpi"><span>Sales orders</span><b>15</b></div>
+            <div class="kpi"><span>Active customers</span><b>12</b></div>
+            <div class="kpi"><span>Amount to collect</span><b>€ 6,750.00</b></div>
+          </div>
+          <div class="list-head"><h4>Sales invoices</h4><span>GET /api/resource/Sales Invoice</span></div>
+          <table class="inv">
+            <thead><tr><th>Invoice</th><th>Customer</th><th>Posted</th><th>Status</th><th class="num">Grand total</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <aside class="widget" aria-label="Widget de chat de Fit-it (simulado)">
+          <div class="w-head"><svg class="app-mark" viewBox="16 16 88 88" aria-hidden="true"><rect x="22" y="22" width="24" height="76" rx="12" fill="#38bdf8"/><path d="M52 22H92a6 6 0 0 1 6 6v18a6 6 0 0 1-6 6H52z" fill="#fff"/><circle cx="64" cy="74" r="12" fill="#fff"/></svg><b>Fit-it</b><div class="w-tabs"><span id="tabMine">My features</span><span>Marketplace</span></div></div>
+          <div class="conv-row"><span class="on" id="tabChat">New chat</span><span>+</span></div>
+          <div class="w-body" id="wbody" aria-live="polite"></div>
+          <div class="w-input"><div class="text" id="wtext" data-placeholder="Ask Fit-it to change this app…"></div><span class="mic" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none"><rect x="5.5" y="1.75" width="5" height="8" rx="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span><span class="send" id="wsend"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · Lo que ya hace el chat -->
+  <section class="slide" data-notes="Esto es lo que está en main, versión 0.4.0, no una hoja de ruta. Si preguntan por la voz o por varias conversaciones, esta es la diapositiva.">
+    <span class="eyebrow a" style="--i:0">En main · v0.4.0</span>
+    <h2 class="a" style="--i:1">Lo que el chat <em>ya hace.</em></h2>
+    <ol class="keys">
+      <li class="a" style="--i:2"><div><h3>Varias conversaciones</h3><p>Cada ventana es un chat. La pestaña toma el título del primer mensaje y pueden ir en paralelo.</p></div></li>
+      <li class="a" style="--i:3"><div><h3>Voz, además de texto</h3><p>El micrófono dicta el cambio. Enter envía; Shift + Enter añade una línea.</p></div></li>
+      <li class="a" style="--i:4"><div><h3>My features</h3><p>Cada cambio se ve, se pausa, se deshace o se publica. Cada guardado es una versión.</p></div></li>
+      <li class="a" style="--i:5"><div><h3>Marketplace</h3><p>Buscar, leer el código, suscribirse tras una prueba, aceptar una actualización, copiar o reportar.</p></div></li>
+      <li class="a" style="--i:6"><div><h3>El panel se queda</h3><p>Se puede cambiar de tamaño y el historial de cada conversación se guarda.</p></div></li>
+      <li class="a" style="--i:7"><div><h3>Todo queda trazado</h3><p>Petición, herramientas, código y cada ejecución, por usuario, visibles en la vista de trazas.</p></div></li>
+    </ol>
+  </section>
+
+  <!-- 8 · El hook -->
+  <section class="slide" data-notes="Esto es lo que genera el agente a partir de la frase de Marta: nueve líneas de Python. Antes de guardarlo pasa un guard que prohíbe imports, ficheros y red, y se prueba con los datos reales de Marta.">
+    <span class="eyebrow a" style="--i:0">Por dentro</span>
+    <h2 class="a" style="--i:1">Entra una frase. <em>Salen nueve líneas.</em></h2>
+    <div class="hook-grid">
+      <div>
+        <blockquote class="quote a" style="--i:2">«Aplica un 15% de descuento a las facturas emitidas en viernes.»<cite>Marta, en el chat</cite></blockquote>
+        <ul class="ticks">
+          <li class="a" style="--i:3"><span>El agente lee <b>la descripción de la API</b> de la aplicación y consulta los datos como Marta.</span></li>
+          <li class="a" style="--i:4"><span>El hook solo ve <b>lo que Marta ya puede ver</b>, con su sesión.</span></li>
+          <li class="a" style="--i:5"><span>Cada guardado es <b>una versión</b>: «deshaz mi último cambio» y vuelve atrás.</span></li>
+        </ul>
+      </div>
+      <div class="code-wrap a" style="--i:3; --r:1.2deg">
+        <span class="example-tag">Ejemplo · ERPNext</span>
+        <span class="pin p1">Guard AST: sin imports, sin ficheros, sin red</span>
+        <div class="code swatch">
+<pre><span class="n">ROUTE</span> = <span class="s">"GET /api/resource/Sales Invoice"</span>
+
+<span class="k">def</span> <span class="n">run</span>(data, ctx):
+    <span class="k">for</span> inv <span class="k">in</span> data[<span class="s">"data"</span>]:
+        day = date.fromisoformat(inv[<span class="s">"posting_date"</span>])
+        <span class="k">if</span> day.weekday() == <span class="n">4</span>:  <span class="c"># viernes</span>
+            inv[<span class="s">"grand_total"</span>] *= <span class="n">0.85</span>
+    ctx.log(<span class="s">"viernes con descuento"</span>)
+    <span class="k">return</span> data</pre>
+        </div>
+        <span class="pin p2">falla cerrado · límite de 2 s · trazado</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · Cualquier aplicación -->
+  <section class="slide" id="apps" data-notes="No es una herramienta para ERPNext: ERPNext es nuestro caso de uso. Para conectar otra aplicación solo se configura su dirección y cómo saber quién es el usuario. Lo hemos probado con ERPNext y con una aplicación de clínica.">
+    <span class="eyebrow a" style="--i:0">No solo ERPNext</span>
+    <h2 class="a" style="--i:1">Funciona con <em>cualquier aplicación web.</em></h2>
+    <div class="apps-grid">
+      <ul class="reqs">
+        <li class="a" style="--i:2"><span class="ck"><svg viewBox="0 0 16 16" fill="none"><path d="m3.5 8.5 3 3 6-7" stroke="#f4eee3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><b>Una aplicación web con API JSON</b>La que ya tienes, tal cual.</span></li>
+        <li class="a" style="--i:3"><span class="ck"><svg viewBox="0 0 16 16" fill="none"><path d="m3.5 8.5 3 3 6-7" stroke="#f4eee3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><b>Sesión de usuario por cookie</b>Fit-it la reenvía; nunca usa una cuenta compartida.</span></li>
+        <li class="a" style="--i:4"><span class="ck"><svg viewBox="0 0 16 16" fill="none"><path d="m3.5 8.5 3 3 6-7" stroke="#f4eee3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span><b>Un endpoint que diga quién es el usuario</b>Ruta y campo configurables.</span></li>
+        <li class="a" style="--i:5"><span class="ck opt"></span><span><b>Opcional: descripción OpenAPI</b>Así el agente conoce los endpoints desde el principio.</span></li>
+      </ul>
+      <div class="tiles">
+        <div class="tile tested a" style="--i:3; --r:-1deg"><h4>ERP</h4><p>ERPNext 16: facturas, clientes, pedidos.</p><span class="badge ok">probado</span></div>
+        <div class="tile tested a" style="--i:4; --r:1deg"><h4>Gestión clínica</h4><p>Pacientes, médicos, citas y deuda.</p><span class="badge ok">probado</span></div>
+        <div class="tile a" style="--i:5; --r:.6deg"><h4>CRM y helpdesk</h4><p>Vistas y avisos distintos por comercial o agente.</p><span class="badge fit">encaja</span></div>
+        <div class="tile a" style="--i:6; --r:-.8deg"><h4>Backoffice e intranet</h4><p>Herramientas internas que nadie tiene tiempo de tocar.</p><span class="badge fit">encaja</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · Compartir -->
+  <section class="slide" data-notes="Lo que funciona para una persona puede servir a otra. El marketplace permite publicar, suscribirse o copiar. Clave: lo que te suscribes se ejecuta con tu sesión, así que solo ve tus datos.">
+    <span class="eyebrow a" style="--i:0">El patrón se comparte</span>
+    <h2 class="a" style="--i:1">Lo que le sienta bien a una persona <em>puede servirle a otra.</em></h2>
+    <div class="share">
+      <span class="thread" aria-hidden="true"></span>
+        <article class="a" style="--i:2"><div class="knot">1</div><h3>Marta lo publica</h3><p>Desde Mis cambios, o pidiéndolo en el chat. Solo se publica si ella confirma.</p></article>
+        <article class="a" style="--i:3"><div class="knot">2</div><h3>Lucía se suscribe</h3><p>Lee el código, se prueba con sus datos y corre con su sesión. Puede aceptar una versión nueva.</p></article>
+        <article class="a" style="--i:4"><div class="knot">3</div><h3>O hace una copia</h3><p>La copia es suya: la pausa, la deshace o la ajusta del 15% al 10%.</p></article>
+    </div>
+  </section>
+
+  <!-- 10 · Seguridad -->
+  <section class="slide" data-notes="Cuatro reglas que no relajamos. Si os preguntan por seguridad, la respuesta corta es: el hook nunca puede ver más que el propio usuario, y si algo falla, falla cerrado.">
+    <span class="eyebrow a" style="--i:0">Cuatro reglas que no se aflojan</span>
+    <h2 class="a" style="--i:1">Cortado a medida, <em>cosido firme.</em></h2>
+    <div class="principles">
+      <article class="principle swatch a" style="--i:2; --r:-1.5deg">
+        <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><rect x="7" y="9" width="30" height="26" rx="7" stroke="#1e2a22" stroke-width="1.8"/><path d="M13 22h18" stroke="#8b7bff" stroke-width="1.8" stroke-dasharray="3 3" stroke-linecap="round"/></svg>
+        <h3>Cero modificaciones</h3><p>La aplicación funciona tal como viene. Sin parches, sin plugins, sin redespliegues.</p>
+      </article>
+      <article class="principle swatch a" style="--i:3; --r:1deg">
+        <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><circle cx="22" cy="17" r="7" stroke="#1e2a22" stroke-width="1.8"/><path d="M9 37c2-7 7-10 13-10s11 3 13 10" stroke="#1e2a22" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <h3>Nunca más de lo que ya ves</h3><p>Los hooks solo llegan a los datos por la API de la aplicación y con la sesión del usuario.</p>
+      </article>
+      <article class="principle swatch a" style="--i:4; --r:-.8deg">
+        <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M22 6 36 12v10c0 8-6 13-14 16C14 35 8 30 8 22V12l14-6Z" stroke="#1e2a22" stroke-width="1.8" stroke-linejoin="round"/><path d="m16 22 4 4 8-8" stroke="#8b7bff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <h3>Falla cerrado</h3><p>Si un hook se rompe o se pasa de tiempo, el usuario ve un error. Nunca datos sin filtrar.</p>
+      </article>
+      <article class="principle swatch a" style="--i:5; --r:1.6deg">
+        <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M8 34c6-2 8-10 14-12s8-10 14-14" stroke="#1e2a22" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="4 4"/><circle cx="8" cy="34" r="3" fill="#8b7bff"/><circle cx="22" cy="22" r="3" fill="#8b7bff"/><circle cx="36" cy="8" r="3" fill="#8b7bff"/></svg>
+        <h3>Todo queda trazado</h3><p>Petición, código, validación, diff y cada ejecución, por usuario.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- 11 · Valor -->
+  <section class="slide" data-notes="Tres públicos ganan. El usuario consigue lo que necesita. La empresa personaliza sin tocar ni redesplegar su aplicación. El equipo de desarrollo deja de recibir peticiones sueltas y ve qué cambios se repiten.">
+    <span class="eyebrow a" style="--i:0">Dónde añade valor</span>
+    <h2 class="a" style="--i:1">Gana quien la usa, quien la opera <em>y quien la mantiene.</em></h2>
+    <div class="value">
+      <article class="vcard a" style="--i:2; --c: var(--clay)">
+        <span class="who">Usuarios</span>
+        <h3>La aplicación se adapta a su trabajo, con solo pedirlo.</h3>
+        <ul><li>Cada perfil ajusta lo que ve y cómo se calcula.</li><li>Sin tickets ni esperas, y se deshace con una frase.</li><li>Lo que funciona se comparte con un clic.</li></ul>
+      </article>
+      <article class="vcard a" style="--i:3; --c: var(--moss)">
+        <span class="who">Empresa que opera la app</span>
+        <h3>Personalización sin tocar ni redesplegar nada.</h3>
+        <ul><li>Los cambios viven fuera de la aplicación y no la ensucian.</li><li>Auditoría completa por usuario.</li><li>Elige el modelo de IA, incluso uno local con Ollama.</li></ul>
+      </article>
+      <article class="vcard a" style="--i:4; --c: var(--mustard)">
+        <span class="who">Desarrollo o proveedor</span>
+        <h3>Menos peticiones sueltas, más señal.</h3>
+        <ul><li>Los cambios de una sola persona salen del backlog.</li><li>El marketplace enseña qué cambios se repiten.</li><li>Sin forks ni versiones a medida que mantener.</li></ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- 12 · Comparativa -->
+  <section class="slide" data-notes="Hay herramientas parecidas, pero o cambian solo lo que se pinta, o las escriben desarrolladores, o no son por usuario. Fit-it cambia datos y comportamiento en el servidor, lo pide el propio usuario y queda auditado.">
+    <span class="eyebrow a" style="--i:0">Frente a lo que ya existe</span>
+    <h2 class="a" style="--i:1">Otros cambian la página. <em>Fit&#8209;it cambia el comportamiento.</em></h2>
+    <div class="compare-wrap a" style="--i:2">
+      <table class="compare">
+        <thead><tr><th>Opción</th><th>Qué cambia</th><th>Quién lo hace</th><th>Por usuario</th><th>Toca la app</th></tr></thead>
+        <tbody>
+          <tr><th>Desarrollo a medida</th><td>Datos y lógica</td><td>Desarrolladores, ticket a ticket</td><td class="no">No</td><td class="no">Sí</td></tr>
+          <tr><th>Extensión de navegador</th><td>Solo lo que se pinta</td><td>Cada usuario la instala</td><td class="yes">Sí</td><td class="yes">No, pero sin control ni auditoría</td></tr>
+          <tr><th>Inyección de JS/CSS</th><td>Aspecto de la página</td><td>Reglas escritas a mano</td><td class="no">No</td><td class="yes">No</td></tr>
+          <tr><th>API gateway</th><td>Peticiones en un proxy</td><td>Políticas de desarrolladores</td><td class="no">Por cliente</td><td class="yes">No</td></tr>
+          <tr class="us"><th>Fit-it</th><td>Datos y comportamiento</td><td>El propio usuario, hablando</td><td class="yes">Sí</td><td class="yes">No, y con auditoría</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 13 · Puntos clave -->
+  <section class="slide" data-notes="Si solo recuerdan seis cosas, que sean estas. Es la diapositiva para dejar abierta durante las preguntas.">
+    <span class="eyebrow a" style="--i:0">Puntos clave</span>
+    <h2 class="a" style="--i:1">Seis razones que caben <em>en una reunión.</em></h2>
+    <ol class="keys">
+      <li class="a" style="--i:2"><div><h3>Cualquier aplicación web</h3><p>Se coloca delante, sin cambiar su código. Quitarlo es volver a la dirección de siempre.</p></div></li>
+      <li class="a" style="--i:3"><div><h3>Por persona, no por empresa</h3><p>Cada usuario tiene su versión; lo que pide uno no afecta a los demás.</p></div></li>
+      <li class="a" style="--i:4"><div><h3>Seguro por diseño</h3><p>Guard AST, límite de tiempo, fallo cerrado y solo la sesión del usuario.</p></div></li>
+      <li class="a" style="--i:5"><div><h3>Auditable</h3><p>Cada petición, código y ejecución queda trazado por usuario.</p></div></li>
+      <li class="a" style="--i:6"><div><h3>Sin atarse a un proveedor de IA</h3><p>Una variable elige el modelo. En local, los datos no salen de casa.</p></div></li>
+      <li class="a" style="--i:7"><div><h3>Lo bueno se propaga</h3><p>El marketplace convierte el cambio de uno en mejora para el equipo.</p></div></li>
+    </ol>
+  </section>
+
+  <!-- 14 · Pitch -->
+  <section class="slide" id="pitchSlide" data-notes="Leed el pitch a ritmo tranquilo: las frases se iluminan a velocidad de lectura y el reloj marca los 30 segundos. Cerrad con la propuesta de piloto.">
+    <span class="eyebrow a" style="--i:0">El pitch</span>
+    <h2 class="a" style="--i:1">Explicación en <em>treinta segundos.</em></h2>
+    <div class="pitch a" style="--i:2">
+      <span class="timer"><svg viewBox="0 0 18 20" fill="none" aria-hidden="true"><circle cx="9" cy="11" r="7.5" stroke="currentColor" stroke-width="1.5"/><path d="M7 1.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="hand" d="M9 11V6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>30 segundos</span>
+      <p class="pitch-text" id="pitchText"><span>Todo el mundo usa software que casi le encaja, y tiene una lista de pequeños cambios que nunca entran en un sprint.</span> <span>Fit-it se coloca delante de cualquier aplicación web.</span> <span>Cada usuario describe el cambio en un chat, un agente lo convierte en un pequeño hook y, desde ese momento, esa persona ve su versión de la aplicación.</span> <span>La aplicación no se modifica, sus permisos siguen mandando y cada cambio queda auditado.</span> <span><em>El mismo software, a la medida de cada persona.</em></span></p>
+      <div class="pilot"><span><b>Siguiente paso: un piloto.</b> Un equipo, su aplicación de siempre y Fit-it delante. Medimos cuántas peticiones resuelven sin abrir un ticket.</span></div>
+    </div>
+  </section>
+
+  <!-- 15 · Cierre -->
+  <section class="slide close" data-notes="Gracias. Abrid turno de preguntas; si hay tiempo, volved a la diapositiva del caso de uso y cambiad entre Marta y Lucía en directo.">
+    <div class="logo-big a" style="--i:0">
+      <svg class="land-mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 8h8M8 12h5M8 16h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="16" r="2" fill="#8b7bff"/></svg>
+      Fit-it
+    </div>
+    <h2 class="a" style="--i:1">El mismo software. <em>A la medida de cada uno.</em></h2>
+    <div class="foot a" style="--i:2"><span>Gracias · ¿preguntas?</span><span>Kripta-Studios · Martinhdeez · Migueldgq</span></div>
+  </section>
+</div>
+
+<div class="ui progress" aria-hidden="true">
+  <div class="track"></div><div class="fill" id="fill"></div>
+  <svg class="needle" id="needle" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="6" fill="none" stroke="#f3f3f7" stroke-width="1.5"/><path d="M8 8h8M8 12h5M8 16h3" stroke="#f3f3f7" stroke-width="1.5" stroke-linecap="round"/><circle cx="17" cy="16" r="2" fill="#8b7bff"/></svg>
+</div>
+<div class="ui hint" id="hint">← → para avanzar · F pantalla completa · N notas</div>
+<div class="ui controls">
+  <button type="button" id="prev" aria-label="Diapositiva anterior"><svg viewBox="0 0 16 16" fill="none"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <span class="count" id="count">01 / 15</span>
+  <button type="button" id="next" aria-label="Diapositiva siguiente"><svg viewBox="0 0 16 16" fill="none"><path d="m6 3 5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>
+<div class="ui notes" id="notes" aria-live="polite"><small>Notas del orador</small><span id="notesText"></span></div>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const $ = (s) => document.querySelector(s);
+  const stage = $("#stage");
+  const slides = [...document.querySelectorAll(".slide")];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
+  let current = -1;
+
+  function fit() {
+    const s = Math.min(innerWidth / 1600, innerHeight / 900);
+    stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+  }
+  addEventListener("resize", fit);
+  fit();
+
+  function go(n) {
+    n = Math.max(0, Math.min(slides.length - 1, n));
+    if (n === current) return;
+    const prev = current;
+    current = n;
+    slides.forEach((s, i) => {
+      s.classList.toggle("active", i === n);
+      s.classList.toggle("past", i < n);
+    });
+    const pct = slides.length > 1 ? (n / (slides.length - 1)) * 100 : 0;
+    $("#fill").style.width = pct + "%";
+    $("#needle").style.left = pct + "%";
+    $("#count").textContent = String(n + 1).padStart(2, "0") + " / " + slides.length;
+    $("#notesText").textContent = slides[n].dataset.notes || "";
+    history.replaceState(null, "", "#" + (n + 1));
+    if (prev !== -1) $("#hint").style.opacity = 0;
+    onEnter(slides[n]);
+    if (prev !== -1) onLeave(slides[prev]);
+  }
+
+  addEventListener("keydown", (e) => {
+    if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(current + 1); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(current - 1); }
+    else if (e.key === "Home") go(0);
+    else if (e.key === "End") go(slides.length - 1);
+    else if (e.key.toLowerCase() === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    else if (e.key.toLowerCase() === "n") $("#notes").classList.toggle("show");
+  });
+  $("#prev").addEventListener("click", () => go(current - 1));
+  $("#next").addEventListener("click", () => go(current + 1));
+
+  // ---------- Demo: ERPNext use case ----------
+  const invoices = [
+    { id: "ACC-SINV-2026-00012", cust: "Aurora Clinic", date: "Fri 23 Oct", total: 368, paid: true, fri: true },
+    { id: "ACC-SINV-2026-00011", cust: "Brisa Architecture", date: "Wed 21 Oct", total: 324, paid: false },
+    { id: "ACC-SINV-2026-00010", cust: "Cedar Academy", date: "Fri 16 Oct", total: 840, paid: false, fri: true },
+    { id: "ACC-SINV-2026-00009", cust: "Delta Logistics", date: "Wed 14 Oct", total: 1250, paid: false },
+    { id: "ACC-SINV-2026-00008", cust: "Eira Bakery", date: "Fri 9 Oct", total: 610, paid: true, fri: true },
+    { id: "ACC-SINV-2026-00007", cust: "Faro Studio", date: "Tue 6 Oct", total: 455, paid: true },
+  ];
+  const PROMPT = "Aplica un 15% de descuento a las facturas emitidas en viernes";
+  const DONE = "Hecho. Las facturas de los viernes muestran un 15% menos, solo para ti.";
+  const eur = (n) => "€ " + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rows = $("#rows"), erp = $("#erp"), body = $("#wbody"), text = $("#wtext"), send = $("#wsend");
+  const fitted = $("#fitted"), caption = $("#caption"), railAv = $("#railAv");
+  const tabChat = $("#tabChat"), tabMine = $("#tabMine");
+  const state = { hookSaved: false, run: 0 };
+  const alive = (id) => id === state.run;
+
+  function renderRows(applyHook) {
+    rows.innerHTML = invoices.map((inv) => {
+      const changed = applyHook && inv.fri;
+      const now = changed ? Math.round(inv.total * 0.85 * 100) / 100 : inv.total;
+      return `<tr><td>${inv.id}</td><td>${inv.cust}</td><td>${inv.date}</td>
+        <td><span class="status ${inv.paid ? "paid" : "unpaid"}">${inv.paid ? "Paid" : "Unpaid"}</span></td>
+        <td class="num"><span class="amt ${changed ? "changed" : ""}"><span class="old">${eur(inv.total)}</span><span class="new">${eur(now)}</span></span></td></tr>`;
+    }).join("");
+  }
+  function add(html, cls) {
+    const el = document.createElement("div");
+    el.className = cls;
+    el.innerHTML = html;
+    body.appendChild(el);
+    return el;
+  }
+  function say(s) {
+    caption.style.opacity = 0;
+    setTimeout(() => { caption.textContent = s; caption.style.opacity = 1; }, reduce ? 0 : 250);
+  }
+  function setTabs(mine) { tabChat.classList.toggle("on", !mine); tabMine.classList.toggle("on", mine); }
+  function setAvatar(u) { railAv.textContent = u === "lucia" ? "L" : "M"; railAv.className = "av me " + (u === "lucia" ? "l" : "m"); }
+  function flash() { erp.classList.remove("reloading"); void erp.offsetWidth; erp.classList.add("reloading"); }
+
+  function showLucia() {
+    body.innerHTML = ""; text.innerHTML = "";
+    setTabs(true);
+    add(`<b>Aún no tienes cambios</b>Pide uno, o busca en el marketplace y suscríbete.`, "empty");
+    fitted.classList.remove("show");
+    renderRows(false);
+    setAvatar("lucia");
+    say("Lucía recarga la misma página: importes originales.");
+  }
+  function showMartaDone() {
+    body.innerHTML = ""; text.innerHTML = "";
+    setTabs(false);
+    tabChat.textContent = "descuento de viernes";
+    add(PROMPT, "msg user");
+    add(`<span class="saved">✓ guardado descuento_viernes v1</span>`, "msg bot");
+    add(DONE, "msg bot");
+    fitted.classList.add("show");
+    renderRows(true);
+    setAvatar("marta");
+    say("Marta conserva su cambio en cada recarga.");
+  }
+
+  async function play() {
+    const id = ++state.run;
+    state.hookSaved = false;
+    setPersona("marta");
+    body.innerHTML = ""; text.innerHTML = "";
+    setTabs(false);
+    tabChat.textContent = "New chat";
+    fitted.classList.remove("show");
+    renderRows(false);
+    setAvatar("marta");
+    say("Marta abre su ERP a través de Fit-it.");
+    await sleep(1500); if (!alive(id)) return;
+
+    for (let i = 1; i <= PROMPT.length; i++) {
+      if (!alive(id)) return;
+      text.innerHTML = PROMPT.slice(0, i) + '<span class="caret"></span>';
+      send.classList.add("hot");
+      await sleep(26 + Math.random() * 40);
+    }
+    await sleep(450); if (!alive(id)) return;
+    text.innerHTML = ""; send.classList.remove("hot");
+    tabChat.textContent = "descuento de viernes";
+    add(PROMPT, "msg user");
+    say("El agente lee la API y consulta los datos como Marta.");
+
+    const box = add("", "steps");
+    for (const [name, extra] of [["list_endpoints", ""], ["get_endpoint", " <em>Sales Invoice</em>"], ["search_features", ""], ["write_hook", " <em>descuento_viernes</em>"], ["prueba con tus datos", ""]]) {
+      await sleep(320); if (!alive(id)) return;
+      const s = document.createElement("div");
+      s.className = "step run";
+      s.innerHTML = `<i></i><span>${name}${extra}</span>`;
+      box.appendChild(s);
+      await sleep(600 + Math.random() * 350); if (!alive(id)) return;
+      s.className = "step ok";
+    }
+    await sleep(300); if (!alive(id)) return;
+    say("Escribe el hook, el guard lo revisa y se prueba antes de guardar.");
+    add(`<span class="f">+++ b/descuento_viernes.py</span>\n<span class="ad">+ROUTE = "GET /api/resource/Sales Invoice"</span><span class="ad">+    if day.weekday() == 4:</span><span class="ad">+        inv["grand_total"] *= 0.85</span>`, "diff");
+    await sleep(1300); if (!alive(id)) return;
+    add(`<span class="saved">✓ guardado descuento_viernes v1 · recargando</span>`, "msg bot");
+    await sleep(500); if (!alive(id)) return;
+    flash();
+    await sleep(260); if (!alive(id)) return;
+    renderRows(true);
+    fitted.classList.add("show");
+    state.hookSaved = true;
+    say("Facturas del viernes con un 15% menos, solo para Marta.");
+    await sleep(700); if (!alive(id)) return;
+    add(DONE, "msg bot");
+
+    await sleep(4000); if (!alive(id)) return;
+    choose("lucia", true);
+    await sleep(5000); if (!alive(id)) return;
+    choose("marta", true);
+  }
+
+  const pill = document.querySelector(".personas .pill");
+  const buttons = document.querySelectorAll(".personas button");
+  function movePill() {
+    const b = [...buttons].find((x) => x.getAttribute("aria-pressed") === "true");
+    pill.style.left = b.offsetLeft + "px";
+    pill.style.width = b.offsetWidth + "px";
+  }
+  function setPersona(user) {
+    buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.user === user)));
+    movePill();
+  }
+  function choose(user, fromScript) {
+    if (!fromScript) state.run++;
+    setPersona(user);
+    flash();
+    setTimeout(() => {
+      if (user === "lucia") showLucia();
+      else { state.hookSaved = true; showMartaDone(); }
+    }, reduce ? 0 : 260);
+  }
+  buttons.forEach((b) => b.addEventListener("click", () => choose(b.dataset.user, false)));
+  $("#replay").addEventListener("click", play);
+  document.fonts && document.fonts.ready.then(movePill);
+
+  // ---------- Pitch ----------
+  const pitchSpans = document.querySelectorAll("#pitchText span");
+  let pitchRun = 0;
+  async function lightPitch() {
+    const id = ++pitchRun;
+    pitchSpans.forEach((s) => s.classList.remove("lit"));
+    await sleep(900);
+    for (const s of pitchSpans) {
+      if (id !== pitchRun) return;
+      s.classList.add("lit");
+      await sleep(Math.max(1400, s.textContent.length * 50));
+    }
+  }
+
+  function onEnter(slide) {
+    if (slide.id === "demoSlide") { movePill(); play(); }
+    if (slide.id === "pitchSlide") lightPitch();
+  }
+  function onLeave(slide) {
+    if (slide.id === "demoSlide") state.run++;
+    if (slide.id === "pitchSlide") pitchRun++;
+  }
+
+  renderRows(false);
+  const start = parseInt(location.hash.slice(1), 10);
+  go(Number.isFinite(start) ? start - 1 : 0);
+})();
+</script>
+</body>
+</html>
