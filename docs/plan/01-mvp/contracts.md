@@ -17,5 +17,7 @@ Frozen for this iteration once the plan is approved. A change is a new spec vers
 - `make check` runs the whole suite inside Docker, with the `demo` service running and reachable at `http://demo:8001`.
 - The core is tested in-process: `from main import app` with FastAPI's `TestClient`, and `BASE_URL=http://demo:8001`.
 - The agent is tested with `agent.override(model=FunctionModel(...))`. No test calls a real model or needs an API key.
+- The core reads `WORKSPACES`, `BASE_URL` and `FITIT_MODEL` from the environment each time it uses them, never once at import, so each test can set its own values with `monkeypatch.setenv`.
+- Each acceptance item has its own file, `tests/acceptance/test_<item>.py` (for example `test_hr1.py`), with its fixtures inside it. There is no shared `conftest.py`. Demo app tests use HTTP to `DEMO_URL` (default `http://demo:8001`). Core modules are imported by name (`hooks`, `main`, `agent`, `trace`): `backend/` is on `PYTHONPATH`.
 - Tests that need hooks write hook files directly into a temporary `WORKSPACES` folder, using the file format from the hook contract.
 - Tests that check trace events replace `trace.emit` with a recorder (for example with `monkeypatch`).
