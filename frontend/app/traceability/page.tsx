@@ -254,7 +254,7 @@ function Delta({ a, b }: { a: Stats; b: Stats }) {
   return <span className={`delta ${delta > 0 ? "up" : "down"}`}>{delta >= 0 ? "+" : "−"}{fmt(Math.abs(delta))} ms, {rel >= 0 ? "+" : "−"}{Math.abs(Math.round(rel))}%</span>;
 }
 
-type GroupRow = { name: string; o: Stats; f: Stats; dms: number | null; dpct: number | null };
+type GroupRow = { name: string; o: Stats; f: Stats; dms: number | null; dpct: number | null; note?: "no hook" | "virtual" };
 const COLS: [string, string, (r: GroupRow) => number | string | null][] = [
   ["Route group", "name", (r) => r.name],
   ["Orig. req", "on", (r) => r.o.n], ["avg", "oavg", (r) => (r.o.n ? r.o.avg : null)], ["p50", "op50", (r) => (r.o.n ? r.o.p50 : null)],
@@ -285,7 +285,8 @@ function GroupTable({ rows }: { rows: GroupRow[] }) {
         <tbody>{sorted.map((r) => (
           <tr key={r.name}>
             <td title={r.name}>{clip(r.name, 44)}</td>
-            {COLS.slice(1, 11).map(([, key, g]) => <td key={key} className={key === "on" || key === "fn" ? "sep" : ""}>{num(g(r), key === "on" || key === "fn" ? "" : " ms")}</td>)}
+            {COLS.slice(1, 11).map(([, key, g]) => <td key={key} className={key === "on" || key === "fn" ? "sep" : ""}>{
+              key === "on" && r.note === "virtual" ? "— (virtual)" : key === "fn" && r.note === "no hook" ? "no hook" : num(g(r), key === "on" || key === "fn" ? "" : " ms")}</td>)}
             <td className={r.dms == null ? "" : r.dms > 0 ? "worse" : "better"}>{sign(r.dms, " ms")}</td>
             <td className={r.dpct == null ? "" : r.dpct > 0 ? "worse" : "better"}>{sign(r.dpct, "%")}</td>
           </tr>))}</tbody>
@@ -383,11 +384,21 @@ export default function Traceability() {
     const ms = req.map((e) => Number(e.ms) || 0);
     const hookMs = new Map<string, number[]>();
     for (const e of applied) hookMs.set(s(e.hook), [...(hookMs.get(s(e.hook)) ?? []), Number(e.ms) || 0]);
-    const plain = req.filter((e) => !hooksOf(e).length);
+    // Paired per request: Original = the app's own time (upstream_ms), With Fit-it = the total (ms).
+    // Old events lack upstream_ms: fall back to ms minus the hook.applied time of the same trace.
+    const hookByTrace = new Map<string, number>();
+    for (const e of events) if (e.kind === "hook.applied" && e.trace_id) hookByTrace.set(s(e.trace_id), (hookByTrace.get(s(e.trace_id)) ?? 0) + (Number(e.ms) || 0));
+    const isVirtual = (e: Ev) => pathOf(e).startsWith("/x/");
+    const origOf = (e: Ev) => !hooksOf(e).length ? Number(e.ms) || 0
+      : e.upstream_ms != null ? Number(e.upstream_ms) || 0 : Math.max(0, (Number(e.ms) || 0) - (hookByTrace.get(s(e.trace_id)) ?? 0));
+    const appReq = req.filter((e) => !isVirtual(e));
     const perfGroups = topN(groupCounts, 8).map(({ name }) => {
       const g = req.filter((e) => group(e) === name);
-      const o = stats(g.filter((e) => !hooksOf(e).length)), f = stats(g.filter((e) => hooksOf(e).length));
-      return { name, Original: o.n ? Math.round(o.avg) : null, "With Fit-it": f.n ? Math.round(f.avg) : null, o, f,
+      const virtual = g.every(isVirtual), hg = g.filter((e) => hooksOf(e).length && !isVirtual(e));
+      const note = virtual ? "virtual" as const : hg.length ? undefined : "no hook" as const;
+      const o = virtual ? statsOf([]) : hg.length ? statsOf(hg.map(origOf)) : stats(g);
+      const f = virtual ? stats(g) : hg.length ? stats(hg) : statsOf([]);
+      return { name, Original: o.n ? Math.round(o.avg) : null, "With Fit-it": f.n ? Math.round(f.avg) : null, o, f, note,
         dms: o.n && f.n ? f.avg - o.avg : null, dpct: o.n && f.n && o.avg ? ((f.avg - o.avg) / o.avg) * 100 : null };
     });
     // Cards: native number cards / charts vs Fit-it cards (GET /x/<name>).
@@ -430,7 +441,7 @@ export default function Traceability() {
       topHooks: topN(count(applied, (e) => s(e.hook)), 8),
       toolUse: topN(count(tools, (e) => s(e.tool)), 8),
       byGroup, showUser, hookedCount: hooked.length,
-      orig: stats(plain), fit: stats(hooked), perfGroups,
+      orig: statsOf(appReq.map(origOf)), fit: stats(appReq), perfGroups,
       nativeSt: stats(nativeW), xSt: stats(xCards), cardBars, loadSeries, burstsWithFit: bursts.filter((b) => b.fit != null).length,
       loadNative: statsOf(bursts.map((b) => b.native)), loadWith: statsOf(bursts.map((b) => Math.max(b.native, b.fit ?? 0))),
       reqFlows: hooked.flatMap((e) => hooksOf(e).map((h) => [...(showUser ? [who(e)] : []), grp(e), h, statusClass(Number(e.status))]))
@@ -490,10 +501,10 @@ export default function Traceability() {
             <>
               <section className="tcard perf">
                 <header><h2>Performance: original app vs Fit-it</h2></header>
-                <p className="muted perf-sub">Original = requests with no hook; Fit-it = requests where at least one hook or feature ran. Hook overhead = time inside the hooks.</p>
+                <p className="muted perf-sub">Original = time the app took to answer; With Fit-it = the same request after Fit-it&apos;s hooks ran. Requests with no hook count equally on both sides; /x/ cards have no app call (see Cards below).</p>
                 <div className="perf-tiles">
-                  <PerfTile title="Original app (no hooks)" st={d.orig} color={C.slate} />
-                  <PerfTile title="With Fit-it (hooks / features)" st={d.fit} color={C.violet} />
+                  <PerfTile title="Original app" st={d.orig} color={C.slate} />
+                  <PerfTile title="With Fit-it" st={d.fit} color={C.violet} />
                   {d.orig.n > 0 && d.fit.n > 0 && (() => {
                     const delta = d.fit.avg - d.orig.avg, rel = d.orig.avg ? (delta / d.orig.avg) * 100 : 0;
                     return <span className={`delta ${delta > 0 ? "up" : "down"}`} title="Average latency, Fit-it vs original">{delta >= 0 ? "+" : "−"}{fmt(Math.abs(delta))} ms, {rel >= 0 ? "+" : "−"}{Math.abs(Math.round(rel))}%</span>;
