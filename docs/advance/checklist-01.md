@@ -9,5 +9,5 @@ Ticked by whoever merges, with the pull request number.
 - [ ] **HR1** Hook runtime — developer + tester — PR #
 - [ ] **PX1** Proxy — developer + tester — PR #
 - [ ] **AG1** Coding agent — developer + tester — PR #
-- [ ] **EW1** Embed widget — developer, manual check — PR #
+- [ ] **EW1** Embed widget — frontend teammate — PR #
 - [ ] **TR1** Trace sink — Álvaro — PR #
