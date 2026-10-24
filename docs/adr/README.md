@@ -25,3 +25,8 @@ Rules:
 | [0013](0013-developer-and-tester-agents.md) | Developer, tester and reviewer agents | Accepted |
 | [0014](0014-provider-agnostic-model.md) | Provider-agnostic model through `FITIT_MODEL` | Accepted |
 | [0015](0015-widget-as-static-iframe.md) | Widget as a static Next.js export in a same-origin iframe | Accepted |
+| [0017](0017-postgres-as-core-storage.md) | PostgreSQL as the core's storage | Accepted |
+| [0018](0018-hook-versions-and-undo.md) | Hook versions and undo | Accepted |
+| [0019](0019-persistent-chat-history.md) | Persistent chat history per user | Accepted |
+| [0020](0020-hook-time-limit-and-safety-limits.md) | Hook time limit, output cap and agent rate limit | Accepted |
+| [0021](0021-real-model-evals-on-demand.md) | Real-model evaluation set, run on demand | Accepted |
