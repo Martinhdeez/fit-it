@@ -31,6 +31,12 @@ class HookError(Exception):
         self.hook = hook
 
 
+class Conflict(ValueError):
+    def __init__(self, detail: str, current: int):
+        super().__init__(detail)
+        self.current = current
+
+
 class _Api:
     def __init__(self, api):
         self.get = api.get
@@ -117,14 +123,38 @@ def read_hook(user: str, name: str) -> str:
     raise KeyError(name)
 
 
-def save_hook(user: str, name: str, code: str) -> str:
+def read_hook_version(user: str, name: str) -> tuple[str, int]:
+    if _valid(user, name):
+        with db.connect() as conn:
+            row = conn.execute("SELECT code, version FROM hooks WHERE user_id = %s AND name = %s",
+                               (user, name)).fetchone()
+        if row:
+            return row[0], row[1]
+    raise KeyError(name)
+
+
+def versions(user: str) -> dict[str, int]:
+    if not USER_RE.match(user):
+        return {}
+    with db.connect() as conn:
+        return dict(conn.execute("SELECT name, version FROM hooks WHERE user_id = %s", (user,)).fetchall())
+
+
+def save_hook(user: str, name: str, code: str, expected_version: int | None = None) -> str:
     if not USER_RE.match(user):
         raise ValueError(f"invalid user id '{user}'")
     if not NAME_RE.match(name):
         raise ValueError(f"invalid hook name '{name}': must match {NAME_RE.pattern}")
-    route = " ".join(check_code(code))
     with db.connect() as conn:
-        old = conn.execute("SELECT code FROM hooks WHERE user_id = %s AND name = %s FOR UPDATE", (user, name)).fetchone()
+        # saves of one (user, name) run one after the other, so versions never collide (ADR 0025)
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"{user}/{name}",))
+        old = conn.execute("SELECT code, version FROM hooks WHERE user_id = %s AND name = %s FOR UPDATE",
+                           (user, name)).fetchone()
+        current = old[1] if old else 0
+        if expected_version is not None and expected_version != current:
+            raise Conflict(f"conflict: hook '{name}' is at version {current}, not {expected_version}; read it again",
+                           current)
+        route = " ".join(check_code(code))
         (version,) = conn.execute(
             "INSERT INTO hook_versions (user_id, name, version, code) SELECT %s, %s, coalesce(max(version), 0) + 1, %s"
             " FROM hook_versions WHERE user_id = %s AND name = %s RETURNING version",
@@ -219,10 +249,9 @@ def _run(hook: str | None, code: str, data, ctx):
     return data
 
 
-def run_hooks(user: str, method: str, path: str, data, ctx, features=()):
-    """Subscribed `features` ({"name": "@<id>", "code"}) run first, then the user's own enabled hooks."""
+def _chain(chain, method: str, path: str, data, ctx):
     applied = []
-    for hook in [*features, *(h for h in list_hooks(user) if h["enabled"])]:
+    for hook in chain:
         name = hook["name"]
         try:
             route_method, route_path = check_code(hook["code"])
@@ -237,6 +266,25 @@ def run_hooks(user: str, method: str, path: str, data, ctx, features=()):
     return data, applied
 
 
-def dry_run(user: str, code: str, data, api):
-    check_code(code)
-    return _run(None, code, data, Ctx(user, api))
+def run_hooks(user: str, method: str, path: str, data, ctx, features=()):
+    """Subscribed `features` ({"name": "@<id>", "code"}) run first, then the user's own enabled hooks."""
+    return _chain([*features, *(h for h in list_hooks(user) if h["enabled"])], method, path, data, ctx)
+
+
+def dry_run(user: str, code: str, data, api, name: str | None = None, features=()):
+    method, path = check_code(code)
+    if name is None:
+        return _run(None, code, data, Ctx(user, api))
+    # chain dry run (ADR 0025): the candidate is named None in the chain, so its own failure has .hook None
+    candidate = {"name": None, "code": code}
+    features = list(features)
+    own = [h for h in list_hooks(user) if h["enabled"] and h["name"] != name]
+    if name.startswith("@"):
+        names = [f["name"] for f in features]
+        if name in names:
+            features[names.index(name)] = candidate
+        else:
+            features.append(candidate)
+    else:
+        own.insert(sum(h["name"] < name for h in own), candidate)
+    return _chain([*features, *own], method, path, data, Ctx(user, api))[0]

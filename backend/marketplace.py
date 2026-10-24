@@ -62,14 +62,18 @@ def _text(field: str, value: str, limit: int) -> str:
     return value
 
 
-def _dry_run(user: str, code: str, api) -> None:
-    """Dry-run `code` as `user` on data chosen as the agent's write_hook does (marketplace spec, "Dry run")."""
+def _dry_run(user: str, code: str, api, feature_id: int | None = None) -> None:
+    """Dry-run `code` as `user` on data chosen as the agent's write_hook does (marketplace spec, "Dry run").
+    With `feature_id`, inside the user's whole chain for the route, the feature in its place."""
+    chain = {} if feature_id is None else {"name": f"@{feature_id}", "features": active(user)}
     try:
         method, path = hooks.check_code(code)
         if path.startswith("/x/"):
-            hooks.dry_run(user, code, None, api)
+            hooks.dry_run(user, code, None, api, **chain)
         elif method == "GET" and "{" not in path:
-            hooks.dry_run(user, code, api.get(path), api)
+            hooks.dry_run(user, code, api.get(path), api, **chain)
+    except hooks.HookError as e:
+        raise Error("dry_run_failed", str(e) if e.hook is None else f"{e.hook} failed: {e}")
     except Exception as e:
         raise Error("dry_run_failed", str(e))
 
@@ -146,7 +150,7 @@ def subscribe(user: str, feature_id: int, api) -> dict:
         raise Error("own_feature", "you cannot subscribe to your own feature")
     if feature["subscribed"]:
         raise Error("already_subscribed", f"already subscribed to feature {feature_id}")
-    _dry_run(user, feature["code"], api)
+    _dry_run(user, feature["code"], api, feature_id)
     with db.connect() as conn:
         if not conn.execute("INSERT INTO subscriptions (user_id, feature_id, version) VALUES (%s, %s, %s)"
                             " ON CONFLICT DO NOTHING", (user, feature_id, feature["version"])).rowcount:
@@ -184,7 +188,7 @@ def accept_update(user: str, feature_id: int, api) -> dict:
             raise Error("up_to_date", f"already on the latest version {latest}")
         (code,) = conn.execute("SELECT code FROM feature_versions WHERE feature_id = %s AND version = %s",
                                (feature_id, latest)).fetchone()
-    _dry_run(user, code, api)
+    _dry_run(user, code, api, feature_id)
     with db.connect() as conn:
         conn.execute("UPDATE subscriptions SET version = %s WHERE user_id = %s AND feature_id = %s",
                      (latest, user, feature_id))

@@ -1,5 +1,7 @@
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import psycopg
 import pytest
@@ -297,3 +299,105 @@ def test_delete_hook_unpublishes_its_feature(database):
     b = marketplace.publish("u1", "b", "B", "b")["id"]
     hooks.delete_hook("u1", "a")
     assert sql(database, "SELECT id, published FROM features ORDER BY id") == [(a, False), (b, True)]
+
+
+def test_expected_version(database):
+    def rows():
+        return (sql(database, "SELECT name, version, code FROM hooks ORDER BY name"),
+                sql(database, "SELECT name, version, code FROM hook_versions ORDER BY name, version"))
+    hooks.save_hook("u1", "h", hook("GET /a"), expected_version=0)
+    hooks.save_hook("u1", "h", hook("GET /b"), expected_version=1)
+    hooks.save_hook("u1", "gone", hook("GET /a"))
+    hooks.delete_hook("u1", "gone")
+    before = rows()
+    for name, expected, current in [("h", 1, 2), ("h", 0, 2), ("h", 3, 2), ("new", 1, 0), ("gone", 1, 0)]:
+        with pytest.raises(hooks.Conflict) as e:
+            hooks.save_hook("u1", name, hook("GET /c"), expected_version=expected)
+        assert isinstance(e.value, ValueError) and str(e.value).startswith("conflict:")
+        assert e.value.current == current
+    assert rows() == before
+    assert hooks.read_hook_version("u1", "h") == (hook("GET /b"), 2)
+    hooks.toggle_hook("u1", "h")
+    assert hooks.versions("u1") == {"h": 2} and hooks.versions("nobody") == hooks.versions("bad id") == {}
+    with pytest.raises(KeyError):
+        hooks.read_hook_version("u1", "gone")
+
+
+def concurrently(fn):
+    barrier = Barrier(8)
+
+    def call(i):
+        barrier.wait()
+        return fn(i)
+
+    with ThreadPoolExecutor(8) as pool:
+        return list(pool.map(call, range(8)))
+
+
+@pytest.mark.parametrize("existing", [0, 1])
+def test_concurrent_saves_are_serialized(database, existing):
+    if existing:
+        hooks.save_hook("u1", "h", hook("GET /a", "return 0"))
+    concurrently(lambda i: hooks.save_hook("u1", "h", hook("GET /a", f"return {i + 1}")))
+    last = 8 + existing
+    assert sql(database, "SELECT version FROM hook_versions ORDER BY version") == [(v,) for v in range(1, last + 1)]
+    assert sql(database, "SELECT version, code FROM hooks") == \
+        sql(database, "SELECT version, code FROM hook_versions WHERE version = %s", last)
+
+
+def test_concurrent_expected_version_one_wins(database):
+    hooks.save_hook("u1", "h", hook("GET /a"))
+
+    def save(i):
+        try:
+            return bool(hooks.save_hook("u1", "h", hook("GET /a", f"return {i}"), expected_version=1))
+        except hooks.Conflict:
+            return False
+
+    assert sorted(concurrently(save)) == [False] * 7 + [True]
+    assert sql(database, "SELECT count(*) FROM hook_versions") == [(2,)]
+
+
+def mark(m, route="GET /api/invoices"):
+    return hook(route, f'data[0]["marks"] = data[0].get("marks", []) + ["{m}"]\n    return data')
+
+
+def test_chain_dry_run(database):
+    for name in ("a_hook", "z_hook", "off"):
+        hooks.save_hook("u1", name, mark(name))
+    hooks.toggle_hook("u1", "off")
+    hooks.save_hook("u1", "elsewhere", mark("elsewhere", "GET /api/other"))
+    features = [{"name": "@1", "code": mark("@1")}, {"name": "@2", "code": mark("@2")}]
+    before = sql(database, "SELECT * FROM hooks ORDER BY name"), sql(database, "SELECT * FROM hook_versions")
+
+    def marks(name):
+        return hooks.dry_run("u1", mark("C"), [{}], Api(), name=name, features=features)[0]["marks"]
+
+    assert marks("m_hook") == ["@1", "@2", "a_hook", "C", "z_hook"]
+    assert marks("a_hook") == ["@1", "@2", "C", "z_hook"]
+    assert marks("off") == ["@1", "@2", "a_hook", "C", "z_hook"]
+    assert marks("@2") == ["@1", "C", "a_hook", "z_hook"]
+    assert marks("@9") == ["@1", "@2", "C", "a_hook", "z_hook"]
+    assert hooks.dry_run("u1", mark("C"), [{}], Api())[0]["marks"] == ["C"]  # no name: the candidate alone
+    assert (sql(database, "SELECT * FROM hooks ORDER BY name"), sql(database, "SELECT * FROM hook_versions")) == before
+
+
+def test_chain_dry_run_failures(database):
+    hooks.save_hook("u1", "z_total", hook("GET /api/invoices", 'return data[0]["amount"]'))
+    api, data = Api(), [{"amount": 1}]
+    assert hooks.dry_run("u1", mark("C"), data, api, name="a") == 1
+    for code, culprit in [(hook("GET /api/invoices", "return 1 / 0"), None),
+                          (hook("GET /api/invoices", 'return {"rows": data}'), "z_total")]:
+        with pytest.raises(hooks.HookError) as e:
+            hooks.dry_run("u1", code, data, api, name="a")
+        assert e.value.hook == culprit
+    assert "KeyError" in str(e.value)
+    broken = [{"name": "@9", "code": mark("x")}, {"name": "@3", "code": hook("GET /api/invoices", "return 1 / 0")}]
+    with pytest.raises(hooks.HookError) as e:
+        hooks.dry_run("u1", mark("C"), data, api, name="@9", features=broken)
+    assert e.value.hook == "@3"
+    with psycopg.connect(database) as conn:
+        conn.execute("UPDATE hooks SET code = 'import os' || chr(10) || code")
+    with pytest.raises(hooks.HookError) as e:
+        hooks.dry_run("u1", mark("C"), data, api, name="a")
+    assert e.value.hook == "z_total"
