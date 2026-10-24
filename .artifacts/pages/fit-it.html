@@ -1,0 +1,1126 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fit-it · cualquier aplicación, a medida de cada persona</title>
+<meta name="description" content="Fit-it se pone delante de cualquier aplicación web. Cada usuario pide un cambio con sus palabras y obtiene su propia versión de la app. El código de la aplicación no cambia.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..800,0..100,0..1;1,9..144,300..800,0..100,0..1&family=Instrument+Sans:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #f4eee3;
+  --paper-2: #ebe2d2;
+  --paper-3: #e1d5c0;
+  --ink: #1e2a22;
+  --ink-soft: #4b574e;
+  --ink-faint: #7f877f;
+  --line: #d6cab4;
+  --clay: #c0603b;
+  --clay-soft: #e9b49b;
+  --moss: #4d6a3a;
+  --moss-soft: #c9d6b4;
+  --widget: #1c1b19;
+  --widget-2: #262522;
+  --widget-line: #34322e;
+  --widget-ink: #edebe7;
+  --widget-soft: #a9a59d;
+  --on: #4cc47e;
+  --erp-purple: #443691;
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --sans: "Instrument Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 17px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::selection { background: var(--clay-soft); color: var(--ink); }
+a { color: inherit; }
+:focus-visible { outline: 2px dashed var(--clay); outline-offset: 4px; border-radius: 6px; }
+
+/* Paper grain over everything */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+  opacity: .32;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .2  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+.skip {
+  position: absolute; left: 1rem; top: -3rem; z-index: 200;
+  background: var(--ink); color: var(--paper); padding: .6rem 1rem; border-radius: 8px;
+}
+.skip:focus { top: 1rem; }
+
+.wrap { width: min(1180px, 100% - 3rem); margin-inline: auto; }
+
+/* ---------- Nav ---------- */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  border-bottom: 1px solid transparent;
+  transition: border-color .4s var(--ease);
+}
+.nav.scrolled { border-bottom-color: var(--line); }
+.nav .wrap { display: flex; align-items: center; gap: 2rem; height: 68px; }
+.logo { display: flex; align-items: center; gap: .55rem; text-decoration: none; font: 600 1.35rem/1 var(--serif); font-variation-settings: "SOFT" 100, "WONK" 1; letter-spacing: -.01em; }
+.logo svg { width: 30px; height: 30px; }
+.logo .needle { transform-origin: 15px 15px; animation: sew 5s var(--ease) infinite; }
+@keyframes sew { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(-14deg) translateY(-1px); } 86% { transform: rotate(6deg); } }
+.nav ul { display: flex; gap: 1.6rem; list-style: none; margin: 0 0 0 auto; padding: 0; font-size: .95rem; }
+.nav ul a { text-decoration: none; color: var(--ink-soft); position: relative; }
+.nav ul a::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -4px; height: 2px;
+  background: repeating-linear-gradient(90deg, var(--clay) 0 5px, transparent 5px 9px);
+  transform: scaleX(0); transform-origin: left; transition: transform .45s var(--ease);
+}
+.nav ul a:hover { color: var(--ink); }
+.nav ul a:hover::after { transform: scaleX(1); }
+.tag {
+  font: 500 .74rem/1 var(--mono); letter-spacing: .02em; text-transform: uppercase;
+  padding: .45rem .7rem; border: 1px dashed var(--ink-faint); border-radius: 999px; color: var(--ink-soft);
+}
+
+/* ---------- Hero ---------- */
+.hero { position: relative; padding: 5.5rem 0 3rem; isolation: isolate; }
+.hero .blob { position: absolute; z-index: -1; pointer-events: none; }
+.hero .blob.one { width: 620px; right: -140px; top: -60px; color: var(--moss-soft); }
+.hero .blob.two { width: 360px; left: -150px; top: 260px; color: var(--clay-soft); opacity: .55; }
+.eyebrow { font: 500 .8rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--clay); display: inline-flex; align-items: center; gap: .6rem; }
+.eyebrow::before { content: ""; width: 28px; height: 2px; background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px); }
+h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(2.9rem, 7.2vw, 6.4rem);
+  line-height: .98;
+  letter-spacing: -.035em;
+  margin: 1.4rem 0 1.6rem;
+  max-width: 13ch;
+  font-variation-settings: "opsz" 144, "SOFT" 60, "WONK" 0;
+}
+h1 .w { display: inline-block; opacity: 0; transform: translateY(.45em) rotate(3deg); animation: rise 1.1s var(--ease) forwards; animation-delay: calc(var(--i) * 90ms + 150ms); }
+h1 em { font-style: italic; font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1; color: var(--clay); position: relative; }
+h1 em svg { position: absolute; left: -2%; bottom: -.16em; width: 104%; height: .32em; overflow: visible; }
+h1 em svg path { stroke-dasharray: 320; stroke-dashoffset: 320; animation: draw 1.3s var(--ease) 1.2s forwards; }
+@keyframes rise { to { opacity: 1; transform: none; } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.lede { font-size: clamp(1.08rem, 1.6vw, 1.28rem); color: var(--ink-soft); max-width: 40rem; margin: 0 0 2.2rem; opacity: 0; animation: rise 1s var(--ease) .75s forwards; }
+.lede strong { color: var(--ink); font-weight: 600; }
+.ctas { display: flex; flex-wrap: wrap; gap: .9rem; opacity: 0; animation: rise 1s var(--ease) .95s forwards; }
+.btn {
+  --bg: var(--ink); --fg: var(--paper);
+  display: inline-flex; align-items: center; gap: .6rem;
+  padding: .95rem 1.4rem; border-radius: 999px; text-decoration: none; font-weight: 600; font-size: .98rem;
+  background: var(--bg); color: var(--fg); border: 1.5px solid var(--ink);
+  transition: transform .5s var(--spring), box-shadow .5s var(--ease), background .3s;
+  box-shadow: 0 0 0 0 var(--clay);
+}
+.btn:hover { transform: translateY(-3px) rotate(-1deg); box-shadow: 4px 5px 0 0 var(--clay); }
+.btn.ghost { --bg: transparent; --fg: var(--ink); }
+.btn.ghost:hover { box-shadow: 4px 5px 0 0 var(--moss); }
+.btn svg { width: 18px; height: 18px; transition: transform .4s var(--spring); }
+.btn:hover svg { transform: translateX(3px); }
+
+/* ---------- Tape measure ---------- */
+.tape {
+  position: relative; margin: 4.5rem 0 0; height: 92px; overflow: hidden;
+  background: #e8c96a; border-block: 1.5px solid #b89a3c;
+  transform: rotate(-1.4deg) scale(1.03);
+  box-shadow: 0 10px 24px -14px rgba(60, 45, 20, .45);
+}
+.tape-track {
+  position: absolute; inset: 0 auto 0 0; width: 3200px; display: flex; align-items: flex-end;
+  background:
+    repeating-linear-gradient(90deg, #3b2f17 0 1.5px, transparent 1.5px 100px) 0 0 / 100% 34px no-repeat,
+    repeating-linear-gradient(90deg, #3b2f17 0 1px, transparent 1px 50px) 0 0 / 100% 22px no-repeat,
+    repeating-linear-gradient(90deg, #3b2f17 0 1px, transparent 1px 10px) 0 0 / 100% 12px no-repeat;
+  will-change: transform;
+}
+.tape-item { flex: none; width: 400px; padding: 0 0 .9rem 1rem; display: flex; align-items: baseline; gap: .7rem; color: #2e2410; }
+.tape-item b { font: 500 2.1rem/1 var(--serif); font-variation-settings: "opsz" 72, "SOFT" 100; }
+.tape-item span { font: 500 .8rem/1.25 var(--mono); text-transform: uppercase; letter-spacing: .03em; max-width: 15ch; }
+
+/* ---------- Sections ---------- */
+section { position: relative; }
+.section { padding: 7.5rem 0 3rem; }
+h2 {
+  font: 400 clamp(2.1rem, 4.6vw, 3.7rem)/1.02 var(--serif);
+  letter-spacing: -.03em; margin: 1rem 0 1.2rem; max-width: 18ch;
+  font-variation-settings: "opsz" 120, "SOFT" 50;
+}
+h2 em { font-style: italic; color: var(--clay); font-variation-settings: "opsz" 120, "SOFT" 100, "WONK" 1; }
+.section-lede { color: var(--ink-soft); max-width: 38rem; font-size: 1.1rem; margin: 0; }
+
+.seam { display: block; width: 100%; height: 40px; margin-top: 2rem; overflow: visible; }
+.seam path { fill: none; stroke: var(--clay); stroke-width: 2; stroke-dasharray: 7 8; stroke-linecap: round; }
+.seam { clip-path: inset(0 100% 0 0); transition: clip-path 2.2s var(--ease); }
+.seam.in { clip-path: inset(0 0 0 0); }
+
+.reveal { opacity: 0; transform: translateY(28px) rotate(var(--r, 0deg)); transition: opacity 1s var(--ease), transform 1.1s var(--ease); transition-delay: var(--d, 0ms); }
+.reveal.in { opacity: 1; transform: rotate(var(--r, 0deg)); }
+
+/* ---------- ERPNext demo ---------- */
+.stage { margin-top: 3rem; }
+.persona-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.2rem; margin-bottom: 1.1rem; }
+.persona-bar .label { font: 500 .78rem/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); }
+.personas { display: inline-flex; padding: 4px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 999px; position: relative; }
+.personas button {
+  position: relative; z-index: 1; border: 0; background: none; cursor: pointer;
+  font: 600 .92rem/1 var(--sans); color: var(--ink-soft); padding: .65rem 1.1rem; border-radius: 999px;
+  display: flex; align-items: center; gap: .5rem; transition: color .3s;
+}
+.personas button[aria-pressed="true"] { color: var(--paper); }
+.personas .pill { position: absolute; z-index: 0; top: 4px; bottom: 4px; border-radius: 999px; background: var(--ink); transition: left .55s var(--spring), width .55s var(--spring); }
+.av { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 700 .7rem/1 var(--sans); color: var(--ink); }
+.av.m { background: var(--clay-soft); }
+.av.l { background: var(--moss-soft); }
+.replay { margin-left: auto; border: 1.5px dashed var(--ink-faint); background: none; border-radius: 999px; padding: .55rem 1rem; font: 500 .85rem/1 var(--sans); color: var(--ink-soft); cursor: pointer; display: inline-flex; gap: .45rem; align-items: center; transition: border-color .3s, color .3s; }
+.replay:hover { border-color: var(--clay); color: var(--clay); }
+.replay svg { width: 15px; height: 15px; }
+.caption { font: italic 400 1.05rem/1.4 var(--serif); color: var(--ink-soft); min-height: 1.5em; margin: .9rem 0 0; transition: opacity .4s; }
+
+.window {
+  background: #fff; border-radius: 16px; overflow: hidden;
+  border: 1px solid #d9d2c3;
+  box-shadow: 0 1px 0 #fff inset, 0 30px 60px -30px rgba(50, 40, 20, .35), 0 12px 24px -16px rgba(50, 40, 20, .25);
+  transform: rotate(-.6deg);
+}
+.chrome { display: flex; align-items: center; gap: .9rem; padding: .7rem 1rem; background: #f3f1ed; border-bottom: 1px solid #e6e2da; }
+.dots { display: flex; gap: 6px; }
+.dots i { width: 11px; height: 11px; border-radius: 50%; background: #d8d2c6; }
+.url { flex: 1; display: flex; align-items: center; gap: .5rem; background: #fff; border: 1px solid #e3ded4; border-radius: 8px; padding: .38rem .7rem; font: 400 .78rem/1 var(--mono); color: #6b6b6b; min-width: 0; }
+.url b { color: #222; font-weight: 600; }
+.url span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.via { font: 600 .68rem/1 var(--mono); color: var(--moss); background: #eef3e7; border: 1px solid #d3dfc3; padding: .3rem .45rem; border-radius: 5px; white-space: nowrap; }
+
+.desk { display: grid; grid-template-columns: 52px 1fr 340px; min-height: 560px; font-family: "Inter", var(--sans); }
+.rail { border-right: 1px solid #eee; padding: .8rem 0; display: flex; flex-direction: column; align-items: center; gap: 1rem; background: #fafafa; }
+.rail .e { width: 26px; height: 26px; border-radius: 7px; background: #2490ef; color: #fff; font: 800 .9rem/26px var(--sans); text-align: center; }
+.rail i { width: 18px; height: 18px; border-radius: 5px; border: 1.6px solid #bbb; }
+.rail i.on { border-color: #333; background: #eee; }
+.rail .me { margin-top: auto; }
+
+.erp { padding: 1rem 1.3rem 1.3rem; background: #fff; color: #1f272e; font-size: 13px; min-width: 0; }
+.erp-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .9rem; }
+.erp-top h3 { margin: 0; font: 600 1rem/1 var(--sans); }
+.fitted {
+  font: 600 .7rem/1 var(--mono); color: var(--clay); padding: .35rem .55rem; border-radius: 6px;
+  border: 1.5px dashed var(--clay); background: #fdf3ee;
+  opacity: 0; transform: scale(.7) rotate(-6deg); transition: opacity .4s, transform .6s var(--spring);
+}
+.fitted.show { opacity: 1; transform: rotate(-2deg); }
+.banner { background: var(--erp-purple); color: #fff; border-radius: 10px; padding: 1rem 1.1rem; display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; }
+.banner small { font: 600 .6rem/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; opacity: .75; }
+.banner strong { display: block; font: 700 1.25rem/1.2 var(--sans); margin: .35rem 0 .2rem; }
+.banner p { margin: 0; opacity: .8; font-size: .72rem; }
+.banner .meta { text-align: right; font-size: .7rem; opacity: .85; white-space: nowrap; }
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: .6rem; margin: .8rem 0 1rem; }
+.kpi { border-radius: 9px; padding: .6rem .7rem; border: 1px solid #ececf3; }
+.kpi span { display: block; font-size: .7rem; color: #6b7280; }
+.kpi b { font: 700 1rem/1.4 var(--sans); }
+.kpi:nth-child(1) { background: #f1effb; color: #443691; }
+.kpi:nth-child(2) { background: #eef6f1; color: #2f6d4f; }
+.kpi:nth-child(3) { background: #eef2fb; color: #2f4f8a; }
+.kpi:nth-child(4) { background: #fdf3e6; color: #9a5b14; }
+.list-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .4rem; }
+.list-head h4 { margin: 0; font: 600 .85rem/1 var(--sans); }
+.list-head span { font-size: .7rem; color: #8b8f94; font-family: var(--mono); }
+table { width: 100%; border-collapse: collapse; font-size: .76rem; }
+th { text-align: left; font-weight: 500; color: #8b8f94; padding: .45rem .4rem; border-bottom: 1px solid #eee; }
+td { padding: .55rem .4rem; border-bottom: 1px solid #f3f3f3; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.fri td:nth-child(3) { color: #1f272e; }
+.status { font-size: .66rem; font-weight: 600; padding: .18rem .45rem; border-radius: 999px; }
+.status.paid { background: #e7f5ec; color: #2f6d4f; }
+.status.unpaid { background: #fdecec; color: #b03a3a; }
+.amt { position: relative; display: inline-flex; flex-direction: column; align-items: flex-end; }
+.amt .old { font-size: .66rem; color: #a0a4a8; text-decoration: line-through; height: 0; opacity: 0; overflow: hidden; transition: opacity .4s, height .4s var(--ease); }
+.amt.changed .old { opacity: 1; height: 1.05em; }
+.amt .new { transition: color .4s; }
+.amt.changed .new { color: var(--clay); font-weight: 700; }
+.amt.changed::after {
+  content: ""; position: absolute; left: -4px; right: -4px; bottom: -3px; height: 2px;
+  background: repeating-linear-gradient(90deg, var(--clay) 0 4px, transparent 4px 7px);
+  animation: stitchIn .7s var(--ease) both;
+}
+@keyframes stitchIn { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.erp.reloading { animation: reload .7s var(--ease); }
+@keyframes reload { 0% { opacity: 1; } 35% { opacity: .25; filter: blur(1px); } 100% { opacity: 1; } }
+
+/* Fit-it widget, faithful to the real dark panel */
+.widget { background: var(--widget); color: var(--widget-ink); display: flex; flex-direction: column; border-left: 1px solid #111; font: 400 13px/1.5 var(--sans); min-width: 0; }
+.w-head { display: flex; align-items: center; gap: .5rem; padding: .8rem .9rem; border-bottom: 1px solid var(--widget-line); }
+.w-head .mark { width: 22px; height: 22px; border-radius: 7px; background: var(--on); display: grid; place-items: center; color: #0f1a13; font: 800 .72rem/1 var(--sans); }
+.w-head b { font-weight: 600; }
+.w-tabs { margin-left: auto; display: flex; gap: .2rem; font-size: .7rem; color: var(--widget-soft); }
+.w-tabs span { padding: .25rem .45rem; border-radius: 6px; }
+.w-tabs span.on { background: var(--widget-2); color: var(--widget-ink); }
+.w-body { flex: 1; padding: .9rem; display: flex; flex-direction: column; gap: .6rem; overflow: hidden; }
+.msg { max-width: 92%; padding: .55rem .75rem; border-radius: 14px; animation: pop .5s var(--spring) both; }
+.msg.user { align-self: flex-end; background: #2f2d2a; border-bottom-right-radius: 4px; }
+.msg.bot { align-self: flex-start; background: transparent; color: var(--widget-soft); padding-left: 0; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.96); } }
+.steps { display: flex; flex-direction: column; gap: .3rem; }
+.step { display: flex; align-items: center; gap: .5rem; font: 400 .72rem/1.3 var(--mono); color: var(--widget-soft); animation: pop .4s var(--ease) both; }
+.step i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid #5a5650; flex: none; position: relative; }
+.step.run i { border-color: var(--on); border-right-color: transparent; animation: spin .8s linear infinite; }
+.step.ok i { border-color: var(--on); background: var(--on); }
+.step.ok i::after { content: ""; position: absolute; left: 3.5px; top: 1.5px; width: 3px; height: 6px; border: solid #0f1a13; border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+.step em { font-style: normal; color: var(--widget-ink); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.diff { font: 400 .68rem/1.55 var(--mono); background: #151412; border: 1px solid var(--widget-line); border-radius: 10px; padding: .55rem .65rem; animation: pop .5s var(--ease) both; white-space: pre; overflow: hidden; }
+.diff .f { color: var(--widget-soft); }
+.diff .a { color: #86e0a8; background: rgba(76, 196, 126, .1); display: block; }
+.saved { font: 600 .72rem/1 var(--mono); color: var(--on); animation: pop .4s var(--ease) both; }
+.empty { margin: auto; text-align: center; color: var(--widget-soft); font-size: .78rem; max-width: 22ch; }
+.empty b { display: block; color: var(--widget-ink); font-size: .85rem; margin-bottom: .3rem; }
+.w-input { margin: .7rem; display: flex; align-items: center; gap: .5rem; background: var(--widget-2); border: 1px solid var(--widget-line); border-radius: 14px; padding: .55rem .6rem .55rem .8rem; min-height: 44px; }
+.w-input .text { flex: 1; color: var(--widget-ink); font-size: .8rem; min-height: 1.2em; }
+.w-input .text:empty::before { content: attr(data-placeholder); color: #77736c; }
+.w-input .caret { display: inline-block; width: 1.5px; height: 1em; background: var(--on); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.w-input .send { width: 28px; height: 28px; border-radius: 9px; background: #3a3833; display: grid; place-items: center; transition: background .3s; flex: none; }
+.w-input .send.hot { background: var(--on); }
+.w-input .send svg { width: 14px; height: 14px; }
+
+/* ---------- Flow ---------- */
+.flow-card { margin-top: 3rem; background: var(--paper-2); border-radius: 28px 34px 26px 38px; padding: 2.2rem 2rem 1.8rem; border: 1px solid var(--line); }
+.flow svg { width: 100%; height: auto; display: block; overflow: visible; }
+.flow .node rect { fill: var(--paper); stroke: var(--ink); stroke-width: 1.5; }
+.flow .node.core rect { fill: var(--ink); }
+.flow .node text { font: 600 17px var(--sans); fill: var(--ink); }
+.flow .node .sub { font: 400 12.5px var(--mono); fill: var(--ink-soft); }
+.flow .node.core text { fill: var(--paper); }
+.flow .node.core .sub { fill: #b9c2b7; }
+.flow .thread { fill: none; stroke: var(--ink-faint); stroke-width: 1.6; stroke-dasharray: 5 7; animation: flowDash 1.6s linear infinite; }
+.flow .thread.back { animation-direction: reverse; }
+@keyframes flowDash { to { stroke-dashoffset: -24; } }
+.flow .lbl { font: 500 12px var(--mono); fill: var(--ink-soft); }
+.flow .halo { fill: none; stroke: var(--on); stroke-width: 2; opacity: 0; }
+.steps-list { list-style: none; padding: 0; margin: 2.2rem 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4rem 2rem; counter-reset: s; }
+.steps-list li { counter-increment: s; padding-top: 1rem; border-top: 1.5px dashed var(--line); color: var(--ink-soft); font-size: .98rem; }
+.steps-list li::before { content: counter(s, decimal-leading-zero); display: block; font: italic 400 1.6rem/1 var(--serif); color: var(--clay); margin-bottom: .45rem; }
+.steps-list b { color: var(--ink); font-weight: 600; }
+
+/* ---------- Hook ---------- */
+.hook-grid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 3.5rem; align-items: center; margin-top: 2.5rem; }
+.quote { font: italic 300 clamp(1.6rem, 2.8vw, 2.3rem)/1.2 var(--serif); font-variation-settings: "opsz" 96, "SOFT" 100, "WONK" 1; margin: 0 0 1.4rem; position: relative; padding-left: 1.4rem; }
+.quote::before { content: ""; position: absolute; left: 0; top: .2em; bottom: .2em; width: 3px; background: repeating-linear-gradient(180deg, var(--clay) 0 6px, transparent 6px 11px); }
+.quote cite { display: block; font: normal 500 .82rem/1 var(--mono); color: var(--ink-faint); margin-top: .9rem; letter-spacing: .03em; }
+.notes { list-style: none; padding: 0; margin: 0; display: grid; gap: .8rem; }
+.notes li { display: flex; gap: .8rem; align-items: baseline; color: var(--ink-soft); }
+.notes li::before { content: ""; flex: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--moss); transform: translateY(-1px); }
+.notes b { color: var(--ink); font-weight: 600; }
+
+.swatch {
+  --z: 9px;
+  mask:
+    conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--z)) 51% repeat-x,
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--z)) 51% repeat-x;
+  -webkit-mask:
+    conic-gradient(from 135deg at top, #0000, #000 1deg 89deg, #0000 90deg) top / calc(2 * var(--z)) 51% repeat-x,
+    conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / calc(2 * var(--z)) 51% repeat-x;
+}
+.code { background: var(--ink); color: #e8e4da; padding: 2.1rem 1.8rem; font: 400 .9rem/1.75 var(--mono); position: relative; filter: drop-shadow(0 18px 24px rgba(30, 42, 34, .25)); }
+.code pre { margin: 0; white-space: pre; overflow-x: auto; }
+.code .k { color: #e9a77f; }
+.code .s { color: #b9d39a; }
+.code .c { color: #8a958a; font-style: italic; }
+.code .n { color: #f0d28a; }
+.code-wrap { position: relative; }
+.code-wrap .pin { position: absolute; z-index: 2; font: 500 .72rem/1.2 var(--mono); background: var(--paper); border: 1.5px solid var(--ink); border-radius: 8px; padding: .45rem .6rem; box-shadow: 3px 3px 0 var(--clay); white-space: nowrap; }
+.code-wrap .pin.p1 { top: -14px; right: 18px; transform: rotate(3deg); }
+.code-wrap .pin.p2 { bottom: -16px; left: 28px; transform: rotate(-2.5deg); box-shadow: 3px 3px 0 var(--moss); }
+
+/* ---------- Principles ---------- */
+.principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.4rem; margin-top: 3rem; }
+.principle { background: var(--paper-2); padding: 2.3rem 1.4rem 2.1rem; transition: transform .7s var(--spring), background .4s; }
+.principle:nth-child(2) { background: var(--moss-soft); }
+.principle:nth-child(3) { background: #efd3c2; }
+.principle:nth-child(4) { background: var(--paper-3); }
+.principle:hover { transform: translateY(-8px) rotate(0deg) !important; }
+.principle svg { width: 44px; height: 44px; margin-bottom: 1.1rem; }
+.principle h3 { font: 500 1.35rem/1.15 var(--serif); margin: 0 0 .6rem; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.principle p { margin: 0; color: var(--ink-soft); font-size: .95rem; }
+
+/* ---------- Share ---------- */
+.share { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: 3rem; position: relative; }
+.share .thread-line { position: absolute; left: 8%; right: 8%; top: 34px; height: 2px; background: repeating-linear-gradient(90deg, var(--clay) 0 7px, transparent 7px 13px); }
+.share article { position: relative; padding: 0 1.4rem; text-align: center; }
+.share .knot { width: 68px; height: 68px; margin: 0 auto 1.2rem; border-radius: 50% 46% 52% 48%; background: var(--paper); border: 1.5px solid var(--ink); display: grid; place-items: center; font: italic 500 1.6rem/1 var(--serif); position: relative; z-index: 1; transition: border-radius .8s var(--ease), transform .6s var(--spring); }
+.share article:hover .knot { border-radius: 42% 58% 46% 54%; transform: rotate(-8deg) scale(1.05); }
+.share h3 { font: 500 1.3rem/1.2 var(--serif); margin: 0 0 .5rem; }
+.share p { margin: 0 auto; color: var(--ink-soft); font-size: .96rem; max-width: 30ch; }
+
+/* ---------- Run ---------- */
+.run-grid { display: grid; grid-template-columns: 1fr 1.1fr; gap: 3rem; margin-top: 2.5rem; align-items: start; }
+.terminal { background: #171a17; color: #dfe3dc; border-radius: 14px; overflow: hidden; font: 400 .82rem/1.7 var(--mono); box-shadow: 0 24px 40px -24px rgba(20, 30, 20, .55); transform: rotate(.8deg); }
+.terminal header { display: flex; align-items: center; gap: .6rem; padding: .65rem .9rem; background: #222622; color: #8d958b; font-size: .72rem; }
+.terminal .dots i { background: #3a3f3a; }
+.terminal pre { margin: 0; padding: 1.1rem 1.2rem 1.3rem; white-space: pre-wrap; word-break: break-word; }
+.terminal .p { color: var(--on); user-select: none; }
+.terminal .c { color: #7c857a; }
+.env { display: grid; gap: .55rem; margin: 1.6rem 0; }
+.env div { display: grid; grid-template-columns: auto 1fr; gap: .9rem; align-items: baseline; padding-bottom: .55rem; border-bottom: 1px dashed var(--line); font-size: .92rem; }
+.env code { font: 600 .78rem/1.3 var(--mono); color: var(--moss); background: #e7ecdc; padding: .25rem .45rem; border-radius: 5px; }
+.env span { color: var(--ink-soft); }
+.honest { display: flex; gap: .8rem; padding: 1rem 1.1rem; border-radius: 14px 18px 12px 20px; background: #f6e1d6; border: 1.5px dashed var(--clay); color: #6e3720; font-size: .93rem; }
+.honest b { color: #4f2413; }
+
+/* ---------- Problem ---------- */
+.versus { display: grid; grid-template-columns: 1.25fr 1fr; gap: 2rem; margin-top: 3rem; align-items: stretch; }
+.lane { border-radius: 26px 32px 24px 36px; padding: 2rem 1.8rem; position: relative; }
+.lane.today { background: var(--paper-2); border: 1px solid var(--line); }
+.lane.fitit { background: var(--ink); color: var(--paper); }
+.lane h3 { font: 500 1.5rem/1.1 var(--serif); margin: 0 0 1.4rem; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.lane h3 small { display: block; font: 500 .74rem/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; margin-bottom: .55rem; color: var(--clay); }
+.lane.fitit h3 small { color: var(--on); }
+.chain { list-style: none; padding: 0; margin: 0; display: grid; gap: .55rem; }
+.chain li { position: relative; display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: .7rem .9rem .7rem 2.6rem; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); font-size: .96rem; }
+.lane.fitit .chain li { background: #2a372e; border-color: #3a4a3e; color: #e4e7dc; }
+.chain li::before { content: ""; position: absolute; left: .95rem; top: 50%; width: 11px; height: 11px; margin-top: -5.5px; border-radius: 50%; border: 2px solid var(--ink-faint); }
+.lane.fitit .chain li::before { border-color: var(--on); background: var(--on); }
+.chain li + li::after { content: ""; position: absolute; left: 1.28rem; top: -.6rem; height: .6rem; border-left: 2px dotted var(--ink-faint); }
+.lane.fitit .chain li + li::after { border-color: var(--on); }
+.chain li .wait { flex: none; font: 500 .72rem/1.6 var(--mono); color: var(--ink-faint); }
+.outcome { margin-top: 1.3rem; font: italic 400 1.25rem/1.3 var(--serif); }
+.lane.today .outcome { color: var(--clay); }
+.lane.today .outcome s { text-decoration-thickness: 2px; text-decoration-color: var(--clay); }
+.lane.fitit .outcome { color: var(--moss-soft); }
+
+/* ---------- Value ---------- */
+.value { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 3rem; }
+.vcard { background: #fffaf1; border: 1.5px solid var(--ink); border-radius: 22px 26px 20px 30px; padding: 1.8rem 1.6rem; box-shadow: 6px 7px 0 var(--c, var(--clay)); transition: transform .6s var(--spring), box-shadow .6s var(--spring); }
+.vcard:hover { transform: translate(-3px, -4px) rotate(-.6deg); box-shadow: 10px 12px 0 var(--c, var(--clay)); }
+.vcard .who { font: 500 .75rem/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
+.vcard h3 { font: 500 1.45rem/1.15 var(--serif); margin: .7rem 0 1rem; font-variation-settings: "opsz" 48, "SOFT" 100; }
+.vcard ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .6rem; }
+.vcard li { padding-left: 1.4rem; position: relative; color: var(--ink-soft); font-size: .95rem; }
+.vcard li::before { content: ""; position: absolute; left: 0; top: .62em; width: 10px; height: 2px; background: repeating-linear-gradient(90deg, var(--c, var(--clay)) 0 3px, transparent 3px 5px); }
+
+/* ---------- Key points ---------- */
+.keys { list-style: none; padding: 0; margin: 3rem 0 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 3rem; counter-reset: k; }
+.keys li { counter-increment: k; display: grid; grid-template-columns: 4.2rem 1fr; gap: 1rem; padding: 1.5rem 0; border-top: 1.5px dashed var(--line); }
+.keys li::before { content: counter(k); font: italic 300 3.4rem/.9 var(--serif); color: var(--clay); font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1; }
+.keys h3 { margin: 0 0 .35rem; font: 600 1.12rem/1.3 var(--sans); }
+.keys p { margin: 0; color: var(--ink-soft); font-size: .96rem; }
+
+/* ---------- Comparison ---------- */
+.compare-wrap { margin-top: 2.6rem; overflow-x: auto; border-radius: 22px; border: 1px solid var(--line); background: #fffaf1; }
+.compare { width: 100%; border-collapse: collapse; font-size: .95rem; min-width: 720px; }
+.compare th, .compare td { padding: 1rem 1.1rem; text-align: left; border-bottom: 1px dashed var(--line); white-space: normal; vertical-align: top; }
+.compare thead th { font: 500 .74rem/1.2 var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); background: var(--paper-2); border-bottom: 1px solid var(--line); }
+.compare tbody th { font: 500 1.05rem/1.2 var(--serif); color: var(--ink); }
+.compare td { color: var(--ink-soft); }
+.compare .yes { color: var(--moss); font-weight: 700; }
+.compare .no { color: var(--clay); font-weight: 700; }
+.compare tr.us { background: #edf2e3; }
+.compare tr.us th { font-weight: 600; }
+.compare tr.us th::after { content: " ✂"; color: var(--clay); }
+
+/* ---------- Pitch ---------- */
+.pitch { margin-top: 3rem; position: relative; background: var(--paper-2); border-radius: 34px 28px 40px 30px; padding: clamp(2rem, 5vw, 4rem); border: 1px solid var(--line); overflow: hidden; isolation: isolate; }
+.pitch::before { content: ""; position: absolute; inset: 14px; border: 2px dashed var(--clay-soft); border-radius: 26px 22px 32px 24px; z-index: -1; pointer-events: none; }
+.pitch .timer { display: inline-flex; align-items: center; gap: .55rem; font: 500 .78rem/1 var(--mono); text-transform: uppercase; letter-spacing: .07em; color: var(--clay); }
+.pitch .timer svg { width: 18px; height: 18px; }
+.pitch .timer .hand { transform-origin: 9px 10px; animation: tick 30s linear infinite; }
+@keyframes tick { to { transform: rotate(360deg); } }
+.pitch-text { font: 300 clamp(1.4rem, 2.6vw, 2.15rem)/1.32 var(--serif); letter-spacing: -.012em; margin: 1.2rem 0 0; max-width: 46ch; font-variation-settings: "opsz" 96, "SOFT" 80; }
+.pitch-text span { opacity: .18; transition: opacity .6s var(--ease); }
+.pitch-text span.lit { opacity: 1; }
+.pitch-text em { color: var(--clay); font-style: italic; font-variation-settings: "opsz" 96, "SOFT" 100, "WONK" 1; }
+.pilot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1.4rem; margin-top: 2.6rem; padding-top: 1.8rem; border-top: 1.5px dashed var(--line); }
+.pilot p { margin: 0; max-width: 44rem; color: var(--ink-soft); }
+.pilot b { color: var(--ink); }
+
+/* ---------- Footer ---------- */
+footer { margin-top: 7rem; padding: 4rem 0 3rem; background: var(--ink); color: #d9dccf; position: relative; }
+footer::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 22px; background: var(--paper); clip-path: polygon(0 0, 100% 0, 100% 20%, 97% 70%, 92% 30%, 85% 80%, 77% 35%, 68% 75%, 60% 25%, 51% 70%, 42% 30%, 33% 85%, 25% 30%, 16% 75%, 8% 35%, 3% 70%, 0 30%); }
+footer .big { font: 300 clamp(2.4rem, 6vw, 5rem)/1 var(--serif); letter-spacing: -.03em; margin: 0 0 2rem; font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1; }
+footer .big em { color: var(--clay-soft); }
+footer .row { display: flex; flex-wrap: wrap; gap: 1rem 2rem; justify-content: space-between; font: 400 .85rem/1.5 var(--mono); color: #9ea596; border-top: 1px dashed #3b4a3f; padding-top: 1.4rem; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1020px) {
+  .desk { grid-template-columns: 52px 1fr; }
+  .widget { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #111; min-height: 360px; }
+  .hook-grid, .run-grid { grid-template-columns: 1fr; }
+  .principles { grid-template-columns: repeat(2, 1fr); }
+  .steps-list { grid-template-columns: repeat(2, 1fr); }
+  .versus, .value { grid-template-columns: 1fr; }
+  .keys { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+  body { font-size: 16px; }
+  .nav ul, .nav .tag { display: none; }
+  .hero { padding-top: 3.5rem; }
+  .desk { grid-template-columns: 1fr; }
+  .rail { display: none; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .banner .meta { display: none; }
+  td:nth-child(1), th:nth-child(1) { display: none; }
+  .principles, .steps-list, .share { grid-template-columns: 1fr; }
+  .share { gap: 2.2rem; }
+  .share .thread-line { display: none; }
+  .window, .terminal { transform: none; }
+  .replay { margin-left: 0; }
+  .via { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  html { scroll-behavior: auto; }
+  .reveal, h1 .w, .lede, .ctas { opacity: 1; transform: none; }
+  .pitch-text span { opacity: 1; }
+  .seam { clip-path: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="Fit-it, inicio">
+      <svg viewBox="0 0 30 30" aria-hidden="true">
+        <path d="M4 22 C 9 14, 13 26, 18 17 S 25 10, 27 6" fill="none" stroke="#c0603b" stroke-width="1.8" stroke-dasharray="3 3.2" stroke-linecap="round"/>
+        <g class="needle"><path d="M8 25 L25 5" stroke="#1e2a22" stroke-width="2.2" stroke-linecap="round"/><ellipse cx="23.3" cy="7" rx="1.1" ry="2.1" transform="rotate(40 23.3 7)" fill="#f4eee3" stroke="#1e2a22" stroke-width="1"/></g>
+      </svg>
+      fit·it
+    </a>
+    <ul>
+      <li><a href="#problema">El problema</a></li>
+      <li><a href="#demo">Demo</a></li>
+      <li><a href="#valor">Valor</a></li>
+      <li><a href="#how">Cómo funciona</a></li>
+      <li><a href="#run">ERPNext</a></li>
+      <li><a href="#pitch">Pitch</a></li>
+    </ul>
+    <span class="tag">GDG Coruña · oct 2026</span>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <svg class="blob one" viewBox="0 0 600 520" aria-hidden="true"><path fill="currentColor">
+      <animate attributeName="d" dur="18s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.33;.66;1" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1"
+        values="M300,60 C420,50 540,140 530,260 C520,380 420,470 300,460 C170,450 60,380 70,250 C80,130 180,70 300,60 Z;
+                M310,40 C450,70 560,160 520,290 C490,400 390,480 280,450 C150,420 50,340 80,220 C110,110 190,30 310,40 Z;
+                M290,70 C400,30 520,120 545,240 C570,360 450,450 320,470 C190,490 80,400 60,280 C45,170 170,100 290,70 Z;
+                M300,60 C420,50 540,140 530,260 C520,380 420,470 300,460 C170,450 60,380 70,250 C80,130 180,70 300,60 Z"/>
+    </path></svg>
+    <svg class="blob two" viewBox="0 0 600 520" aria-hidden="true"><path fill="currentColor">
+      <animate attributeName="d" dur="23s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.5;1" keySplines=".45 0 .55 1;.45 0 .55 1"
+        values="M290,70 C400,30 520,120 545,240 C570,360 450,450 320,470 C190,490 80,400 60,280 C45,170 170,100 290,70 Z;
+                M300,60 C420,50 540,140 530,260 C520,380 420,470 300,460 C170,450 60,380 70,250 C80,130 180,70 300,60 Z;
+                M290,70 C400,30 520,120 545,240 C570,360 450,450 320,470 C190,490 80,400 60,280 C45,170 170,100 290,70 Z"/>
+    </path></svg>
+
+    <div class="wrap">
+      <span class="eyebrow">Fit-it · personalización por usuario</span>
+      <h1>
+        <span class="w" style="--i:0">Tu</span>
+        <span class="w" style="--i:1">aplicación,</span>
+        <span class="w" style="--i:2">hecha</span>
+        <span class="w" style="--i:3">a</span>
+        <span class="w" style="--i:4"><em>medida<svg viewBox="0 0 240 16" preserveAspectRatio="none" aria-hidden="true"><path d="M2 10 C 40 3, 90 15, 140 7 S 220 4, 238 9" fill="none" stroke="#c0603b" stroke-width="3" stroke-linecap="round"/></svg></em></span>
+        <span class="w" style="--i:5">de</span>
+        <span class="w" style="--i:6">cada</span>
+        <span class="w" style="--i:7">persona.</span>
+      </h1>
+      <p class="lede">Fit-it se coloca delante de cualquier aplicación web que ya uses. Cada usuario pide cambios con sus propias palabras y Fit-it convierte cada petición en un pequeño hook de Python que se aplica <strong>solo a quien lo pidió</strong>. El código de la aplicación no se toca.</p>
+      <div class="ctas">
+        <a class="btn" href="#demo">Verlo en un caso real
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h11m-4-5 5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <a class="btn ghost" href="#apps">¿Funciona con mi aplicación?</a>
+      </div>
+    </div>
+
+    <div class="tape" aria-label="Cifras clave">
+      <div class="tape-track" id="tape">
+        <div class="tape-item"><b>0</b><span>líneas cambiadas en tu aplicación</span></div>
+        <div class="tape-item"><b>1</b><span>hook por cada petición</span></div>
+        <div class="tape-item"><b>2 s</b><span>de límite en cada ejecución</span></div>
+        <div class="tape-item"><b>16/17</b><span>evals con modelo real superadas</span></div>
+        <div class="tape-item"><b>∞</b><span>versiones guardadas, deshacer con una frase</span></div>
+        <div class="tape-item"><b>0</b><span>tokens de admin compartidos</span></div>
+        <div class="tape-item"><b>1</b><span>variable para cambiar de modelo</span></div>
+        <div class="tape-item"><b>0</b><span>líneas cambiadas en tu aplicación</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="problema">
+    <div class="wrap">
+      <span class="eyebrow reveal">El problema</span>
+      <h2 class="reveal" style="--d:80ms">Todo el mundo tiene <em>su lista</em> de pequeños cambios.</h2>
+      <p class="section-lede reveal" style="--d:160ms">Un descuento para cierto día, un aviso en clientes con deuda, una columna que sobra, un informe que nadie construyó. Cada uno es un ticket, un sprint y un despliegue. Por eso casi ninguno llega a hacerse.</p>
+      <div class="versus">
+        <div class="lane today reveal" style="--d:120ms; --r:-.6deg">
+          <h3><small>Hoy</small>El camino de un cambio pequeño</h3>
+          <ol class="chain">
+            <li>La usuaria necesita ver algo distinto<span class="wait">día 1</span></li>
+            <li>Abre un ticket al equipo de la aplicación<span class="wait">espera</span></li>
+            <li>Compite con todo lo demás en la priorización<span class="wait">espera</span></li>
+            <li>Alguien lo desarrolla dentro de la aplicación<span class="wait">sprint</span></li>
+            <li>Pruebas, despliegue y revisar que no rompa la próxima actualización<span class="wait">sprint</span></li>
+          </ol>
+          <p class="outcome">Y para una sola persona, <s>casi nunca compensa</s>.</p>
+        </div>
+        <div class="lane fitit reveal" style="--d:220ms; --r:.8deg">
+          <h3><small>Con Fit-it</small>El mismo cambio</h3>
+          <ol class="chain">
+            <li>Lo pide en el chat, con sus palabras</li>
+            <li>El agente escribe el hook y lo prueba con sus datos</li>
+            <li>Lo usa. Solo ella. Lo deshace con una frase si no le convence</li>
+          </ol>
+          <p class="outcome">En la misma conversación, sin tocar la aplicación y sin pasar por el backlog.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="demo">
+    <div class="wrap">
+      <span class="eyebrow reveal">La primera prueba</span>
+      <h2 class="reveal" style="--d:80ms">Marta lo pide. Su escritorio cambia. <em>El de Lucía, no.</em></h2>
+      <p class="section-lede reveal" style="--d:160ms">Este es el workspace FITIT Overview de nuestro sandbox de ERPNext, abierto a través de Fit-it en el puerto 8000. Marta dirige la empresa; Lucía está en recepción. Mismo sitio, mismos datos, mismos permisos de Frappe.</p>
+
+      <div class="stage reveal" style="--d:220ms">
+        <div class="persona-bar">
+          <span class="label">Viendo como</span>
+          <div class="personas" role="group" aria-label="Elegir usuario">
+            <span class="pill" aria-hidden="true"></span>
+            <button type="button" data-user="marta" aria-pressed="true"><span class="av m">M</span>Marta · gerente</button>
+            <button type="button" data-user="lucia" aria-pressed="false"><span class="av l">L</span>Lucía · recepción</button>
+          </div>
+          <button type="button" class="replay" id="replay"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.7-4M2.5 2v3h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Repetir</button>
+        </div>
+
+        <div class="window">
+          <div class="chrome">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <div class="url"><span><b>localhost:8000</b>/desk/selling/fitit-overview</span></div>
+            <span class="via">vía núcleo Fit-it</span>
+          </div>
+          <div class="desk">
+            <nav class="rail" aria-hidden="true"><span class="e">E</span><i></i><i></i><i class="on"></i><i></i><i></i><i></i><span class="av me" id="railAv">M</span></nav>
+
+            <div class="erp" id="erp">
+              <div class="erp-top">
+                <h3>FITIT Overview</h3>
+                <span class="fitted" id="fitted">a medida · descuento_viernes v1</span>
+              </div>
+              <div class="banner">
+                <div><small>FITIT Demo Supplies / Business overview</small><strong>Your business at a glance.</strong><p>Sales, customers and daily operations in one place.</p></div>
+                <div class="meta">24 October 2026<br>Spain · EUR</div>
+              </div>
+              <div class="kpis">
+                <div class="kpi"><span>Sales revenue</span><b>€ 8,390.00</b></div>
+                <div class="kpi"><span>Sales orders</span><b>15</b></div>
+                <div class="kpi"><span>Active customers</span><b>12</b></div>
+                <div class="kpi"><span>Amount to collect</span><b>€ 6,750.00</b></div>
+              </div>
+              <div class="list-head"><h4>Sales invoices</h4><span>GET /api/resource/Sales Invoice</span></div>
+              <table>
+                <thead><tr><th>Invoice</th><th>Customer</th><th>Posted</th><th>Status</th><th class="num">Grand total</th></tr></thead>
+                <tbody id="rows"></tbody>
+              </table>
+            </div>
+
+            <aside class="widget" aria-label="Widget de chat de Fit-it (simulado)">
+              <div class="w-head">
+                <span class="mark">fi</span><b>Fit-it</b>
+                <div class="w-tabs"><span class="on" id="tabChat">Chat</span><span id="tabMine">Mis cambios</span><span>Marketplace</span></div>
+              </div>
+              <div class="w-body" id="wbody" aria-live="polite"></div>
+              <div class="w-input">
+                <div class="text" id="wtext" data-placeholder="Describe un cambio para esta app…"></div>
+                <span class="send" id="wsend"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3m0 0L4 7m4-4 4 4" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              </div>
+            </aside>
+          </div>
+        </div>
+        <p class="caption" id="caption">&nbsp;</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="valor">
+    <div class="wrap">
+      <svg class="seam" viewBox="0 0 1180 40" preserveAspectRatio="none" aria-hidden="true"><path d="M0 16 C 220 34, 380 2, 600 20 S 900 36, 1060 14 S 1150 12, 1180 20"/></svg>
+      <span class="eyebrow reveal">Dónde añade valor</span>
+      <h2 class="reveal" style="--d:80ms">Gana quien lo usa, quien lo opera <em>y quien lo mantiene.</em></h2>
+      <div class="value">
+        <article class="vcard reveal" style="--d:0ms; --c: var(--clay)">
+          <span class="who">Usuarios del ERP</span>
+          <h3>Su ERP se adapta a su trabajo, con solo pedirlo.</h3>
+          <ul>
+            <li>Gerencia, recepción o comercial: cada uno ajusta lo que ve y cómo se calcula.</li>
+            <li>Sin tickets ni esperas. Si no convence, «deshaz mi último cambio».</li>
+            <li>Lo que funciona se comparte; el compañero se suscribe con un clic.</li>
+          </ul>
+        </article>
+        <article class="vcard reveal" style="--d:120ms; --c: var(--moss)">
+          <span class="who">Empresa que opera ERPNext</span>
+          <h3>Personalización sin tocar ni redesplegar ERPNext.</h3>
+          <ul>
+            <li>Las personalizaciones viven fuera de Frappe y no se mezclan con su código al actualizar.</li>
+            <li>Auditoría por usuario de cada petición, código generado y ejecución.</li>
+            <li>Los permisos de Frappe no cambian, y el modelo de IA se elige: OpenAI, Anthropic u Ollama en local.</li>
+          </ul>
+        </article>
+        <article class="vcard reveal" style="--d:240ms; --c: #c99a2e">
+          <span class="who">Equipo de desarrollo o partner</span>
+          <h3>Menos peticiones sueltas, más señal sobre lo que hace falta.</h3>
+          <ul>
+            <li>Los cambios de una sola persona dejan de ocupar el backlog.</li>
+            <li>El marketplace enseña qué cambios se repiten: candidatos claros para el producto.</li>
+            <li>Sin forks ni apps a medida que mantener en cada versión.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="claves">
+    <div class="wrap">
+      <span class="eyebrow reveal">Puntos clave para venderlo</span>
+      <h2 class="reveal" style="--d:80ms">Seis razones que caben <em>en una reunión.</em></h2>
+      <ol class="keys">
+        <li class="reveal" style="--d:0ms"><div><h3>Cero cambios en ERPNext</h3><p>Se coloca delante como un proxy. Quitarlo es volver a apuntar el navegador al ERP de siempre.</p></div></li>
+        <li class="reveal" style="--d:80ms"><div><h3>Personalización por persona, no por empresa</h3><p>Cada usuario tiene su versión. Lo que pide uno no afecta a los demás.</p></div></li>
+        <li class="reveal" style="--d:160ms"><div><h3>Seguro por diseño</h3><p>Guard AST sobre todo el código generado, ejecución con límite de tiempo y fallo cerrado. Solo la API, solo con la sesión del usuario.</p></div></li>
+        <li class="reveal" style="--d:240ms"><div><h3>Auditable de principio a fin</h3><p>Petición, código, validación, diff y cada ejecución quedan trazados por usuario y se pueden revisar en Jaeger.</p></div></li>
+        <li class="reveal" style="--d:320ms"><div><h3>Sin atarse a un proveedor de IA</h3><p>Una variable elige el modelo. Con Ollama en local, los datos no salen de la empresa.</p></div></li>
+        <li class="reveal" style="--d:400ms"><div><h3>Lo bueno se propaga solo</h3><p>El marketplace interno convierte el cambio de una persona en una mejora para el equipo, con el código siempre a la vista.</p></div></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <div class="wrap">
+      <svg class="seam" viewBox="0 0 1180 40" preserveAspectRatio="none" aria-hidden="true"><path d="M0 20 C 150 4, 300 36, 450 20 S 750 4, 900 22 S 1100 34, 1180 18"/></svg>
+      <span class="eyebrow reveal">Cómo funciona</span>
+      <h2 class="reveal" style="--d:80ms">Un proxy con <em>aguja e hilo.</em></h2>
+      <p class="section-lede reveal" style="--d:160ms">El navegador solo habla con el núcleo de Fit-it. El núcleo reenvía cada petición a ERPNext con la sesión del propio usuario y, antes de devolver la respuesta, le aplica los hooks de ese usuario.</p>
+
+      <div class="flow-card reveal" style="--d:200ms">
+        <div class="flow">
+          <svg viewBox="0 0 1000 280" role="img" aria-label="Navegador, núcleo de Fit-it y ERPNext; la respuesta vuelve pasando por los hooks del usuario">
+            <path id="pA" class="thread" d="M200 115 C 280 60, 340 60, 400 115"/>
+            <path id="pB" class="thread" d="M600 115 C 680 60, 740 60, 800 115"/>
+            <path id="pC" class="thread back" d="M800 165 C 740 220, 680 220, 600 165"/>
+            <path id="pD" class="thread back" d="M400 165 C 340 220, 280 220, 200 165"/>
+            <text class="lbl" x="300" y="52" text-anchor="middle">cookie de sesión</text>
+            <text class="lbl" x="700" y="52" text-anchor="middle">la misma cookie, intacta</text>
+            <text class="lbl" x="700" y="248" text-anchor="middle">JSON / HTML de siempre</text>
+            <text class="lbl" x="300" y="248" text-anchor="middle">versión de Marta + widget</text>
+
+            <g class="node"><rect x="40" y="90" width="160" height="100" rx="22"/><text x="120" y="135" text-anchor="middle">Navegador</text><text class="sub" x="120" y="158" text-anchor="middle">escritorio de Marta</text></g>
+            <g class="node core"><rect x="400" y="80" width="200" height="120" rx="26"/><text x="500" y="125" text-anchor="middle">Núcleo Fit-it</text><text class="sub" x="500" y="148" text-anchor="middle">hooks · guard · traza</text><text class="sub" x="500" y="168" text-anchor="middle">:8000</text>
+              <rect class="halo" x="394" y="74" width="212" height="132" rx="30"><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.6;.64;.7;1" values="0;0;1;0;0"/></rect></g>
+            <g class="node"><rect x="800" y="90" width="160" height="100" rx="22"/><text x="880" y="135" text-anchor="middle">ERPNext</text><text class="sub" x="880" y="158" text-anchor="middle">Frappe v16, tal cual</text></g>
+
+            <circle r="7" fill="#c0603b"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.02;.17;1" calcMode="linear"><mpath href="#pA"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.02;.17;.18;1" values="0;1;1;0;0"/></circle>
+            <circle r="7" fill="#c0603b"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.2;.36;1" calcMode="linear"><mpath href="#pB"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.2;.36;.37;1" values="0;1;1;0;0"/></circle>
+            <circle r="7" fill="#8a8f86"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.42;.58;1" calcMode="linear"><mpath href="#pC"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.42;.58;.59;1" values="0;1;1;0;0"/></circle>
+            <circle r="8" fill="#4d6a3a"><animateMotion dur="6s" repeatCount="indefinite" keyPoints="0;0;1;1" keyTimes="0;.72;.88;1" calcMode="linear"><mpath href="#pD"/></animateMotion><animate attributeName="opacity" dur="6s" repeatCount="indefinite" keyTimes="0;.72;.88;.89;1" values="0;1;1;0;0"/></circle>
+          </svg>
+        </div>
+        <ol class="steps-list">
+          <li><b>El navegador habla con el núcleo,</b> nunca directamente con ERPNext.</li>
+          <li><b>El núcleo pregunta a Frappe quién eres</b> con <code>frappe.auth.get_logged_user</code> y carga tus hooks desde Postgres.</li>
+          <li><b>La petición sigue hacia ERPNext</b> tal y como la enviaste.</li>
+          <li><b>ERPNext responde como siempre:</b> HTML del escritorio o JSON de su API REST.</li>
+          <li><b>Tus hooks transforman el JSON</b> y el widget de chat se cose en el HTML del escritorio.</li>
+          <li><b>Tú recibes tu versión.</b> Cada compañero, la suya.</li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="hook">
+    <div class="wrap">
+      <span class="eyebrow reveal">Por dentro del dobladillo</span>
+      <h2 class="reveal" style="--d:80ms">Entra una frase. <em>Salen nueve líneas.</em></h2>
+      <div class="hook-grid">
+        <div>
+          <blockquote class="quote reveal" style="--d:120ms">«Aplica un 15% de descuento a las facturas emitidas en viernes.»<cite>Marta, en el widget de chat</cite></blockquote>
+          <ul class="notes">
+            <li class="reveal" style="--d:160ms"><span>El agente lee <b>la descripción de la API de ERPNext</b>, consulta los datos reales como Marta, escribe el hook y lo prueba con sus datos antes de guardarlo.</span></li>
+            <li class="reveal" style="--d:220ms"><span>El hook solo ve <b>lo que Marta ya puede ver</b>: si necesita más datos, los pide con <code>ctx.api.get</code> y su sesión.</span></li>
+            <li class="reveal" style="--d:280ms"><span>Cada guardado es <b>una versión nueva</b>. «Que sea un 20%» lo edita; «deshaz mi último cambio» lo revierte.</span></li>
+          </ul>
+        </div>
+        <div class="code-wrap reveal" style="--d:200ms; --r:1.2deg">
+          <span class="pin p1">Guard AST: sin imports, sin ficheros, sin red</span>
+          <div class="code swatch">
+<pre><span class="n">ROUTE</span> = <span class="s">"GET /api/resource/Sales Invoice"</span>
+
+<span class="k">def</span> <span class="n">run</span>(data, ctx):
+    <span class="k">for</span> inv <span class="k">in</span> data[<span class="s">"data"</span>]:
+        day = date.fromisoformat(inv[<span class="s">"posting_date"</span>])
+        <span class="k">if</span> day.weekday() == <span class="n">4</span>:  <span class="c"># viernes</span>
+            inv[<span class="s">"grand_total"</span>] = round(inv[<span class="s">"grand_total"</span>] * <span class="n">0.85</span>, <span class="n">2</span>)
+    ctx.log(<span class="s">"facturas de viernes con descuento"</span>)
+    <span class="k">return</span> data</pre>
+          </div>
+          <span class="pin p2">falla cerrado · límite de 2 s · trazado</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="safety">
+    <div class="wrap">
+      <svg class="seam" viewBox="0 0 1180 40" preserveAspectRatio="none" aria-hidden="true"><path d="M0 22 C 200 36, 330 4, 520 18 S 820 34, 960 16 S 1120 6, 1180 22"/></svg>
+      <span class="eyebrow reveal">Cuatro reglas que no se aflojan</span>
+      <h2 class="reveal" style="--d:80ms">Cortado a medida, <em>cosido firme.</em></h2>
+      <div class="principles">
+        <article class="principle swatch reveal" style="--d:0ms; --r:-1.5deg">
+          <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><rect x="7" y="9" width="30" height="26" rx="7" stroke="#1e2a22" stroke-width="1.8"/><path d="M13 22h18" stroke="#c0603b" stroke-width="1.8" stroke-dasharray="3 3" stroke-linecap="round"/></svg>
+          <h3>Cero modificaciones</h3>
+          <p>ERPNext funciona tal como viene. Sin apps, sin parches, sin campos personalizados. Actualiza Frappe cuando quieras.</p>
+        </article>
+        <article class="principle swatch reveal" style="--d:90ms; --r:1deg">
+          <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><circle cx="22" cy="17" r="7" stroke="#1e2a22" stroke-width="1.8"/><path d="M9 37c2-7 7-10 13-10s11 3 13 10" stroke="#1e2a22" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <h3>Nunca más de lo que ya ves</h3>
+          <p>Los hooks solo llegan a los datos por la API de ERPNext, con la sesión del propio usuario. Los permisos de Frappe siguen mandando.</p>
+        </article>
+        <article class="principle swatch reveal" style="--d:180ms; --r:-.8deg">
+          <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M22 6 36 12v10c0 8-6 13-14 16C14 35 8 30 8 22V12l14-6Z" stroke="#1e2a22" stroke-width="1.8" stroke-linejoin="round"/><path d="m16 22 4 4 8-8" stroke="#c0603b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <h3>Falla cerrado</h3>
+          <p>Si un hook se rompe o se pasa de tiempo, el usuario recibe un error. Nunca los datos sin filtrar.</p>
+        </article>
+        <article class="principle swatch reveal" style="--d:270ms; --r:1.6deg">
+          <svg viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M8 34c6-2 8-10 14-12s8-10 14-14" stroke="#1e2a22" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="4 4"/><circle cx="8" cy="34" r="3" fill="#c0603b"/><circle cx="22" cy="22" r="3" fill="#c0603b"/><circle cx="36" cy="8" r="3" fill="#c0603b"/></svg>
+          <h3>Todo queda trazado</h3>
+          <p>Petición, código generado, resultado del guard, diff y cada ejecución quedan registrados por usuario y se ven en Jaeger.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="share">
+    <div class="wrap">
+      <span class="eyebrow reveal">El patrón se comparte</span>
+      <h2 class="reveal" style="--d:80ms">Lo que le sienta bien a una persona <em>puede servirle a otra.</em></h2>
+      <p class="section-lede reveal" style="--d:160ms">Los hooks son de quien los pidió. Cuando uno funciona bien, puede ir al marketplace del equipo.</p>
+      <div class="share">
+        <span class="thread-line" aria-hidden="true"></span>
+        <article class="reveal" style="--d:0ms"><div class="knot">1</div><h3>Marta lo publica</h3><p>El agente redacta título y descripción, y solo publica cuando ella lo confirma.</p></article>
+        <article class="reveal" style="--d:120ms"><div class="knot">2</div><h3>Lucía se suscribe</h3><p>Antes lee el código exacto. Se ejecuta como Lucía, con su sesión, así que solo ve sus datos.</p></article>
+        <article class="reveal" style="--d:240ms"><div class="knot">3</div><h3>O hace una copia</h3><p>Solo el autor edita el original. Lucía lo copia en un hook propio y cambia el 15% por un 10%.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="comparativa">
+    <div class="wrap">
+      <span class="eyebrow reveal">Frente a lo que ya existe</span>
+      <h2 class="reveal" style="--d:80ms">Otros cambian la página. <em>Fit&#8209;it cambia el comportamiento.</em></h2>
+      <div class="compare-wrap reveal" style="--d:160ms">
+        <table class="compare">
+          <thead><tr><th>Opción</th><th>Qué cambia</th><th>Quién lo hace</th><th>Por usuario</th><th>Toca ERPNext</th></tr></thead>
+          <tbody>
+            <tr><th>App a medida de Frappe</th><td>Datos y lógica en servidor</td><td>Desarrolladores, ticket a ticket</td><td class="no">No</td><td class="no">Sí</td></tr>
+            <tr><th>Extensión de navegador (Tweeks)</th><td>Solo lo que se pinta (DOM)</td><td>Cada usuario la instala</td><td class="yes">Sí</td><td class="yes">No, pero sin gobierno ni auditoría</td></tr>
+            <tr><th>Inyección de JS/CSS (HCL Customizer)</th><td>Aspecto de la página</td><td>Reglas escritas a mano</td><td class="no">No</td><td class="yes">No</td></tr>
+            <tr><th>API gateway (Apigee, Gravitee)</th><td>Peticiones en un proxy</td><td>Políticas de desarrolladores</td><td class="no">Por cliente, no por persona</td><td class="yes">No</td></tr>
+            <tr class="us"><th>Fit-it</th><td>Datos y comportamiento en servidor</td><td>El propio usuario, hablando</td><td class="yes">Sí</td><td class="yes">No, y con auditoría completa</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="run">
+    <div class="wrap">
+      <svg class="seam" viewBox="0 0 1180 40" preserveAspectRatio="none" aria-hidden="true"><path d="M0 18 C 180 30, 360 6, 560 22 S 880 36, 1020 16 S 1140 10, 1180 20"/></svg>
+      <span class="eyebrow reveal">Integración con ERPNext</span>
+      <h2 class="reveal" style="--d:80ms">Se coloca delante del <em>ERPNext que ya tienes.</em></h2>
+      <div class="run-grid">
+        <div>
+          <p class="section-lede reveal" style="--d:120ms">Levanta el sandbox reproducible de ERPNext 16 y arranca el núcleo delante con un único overlay de Compose. Abre el escritorio en el puerto 8000 en lugar del 8080 y entra como siempre.</p>
+          <div class="env reveal" style="--d:180ms">
+            <div><code>BASE_URL</code><span>http://frontend:8080, el Nginx de ERPNext</span></div>
+            <div><code>FITIT_USER_PATH</code><span>/api/method/frappe.auth.get_logged_user</span></div>
+            <div><code>FITIT_USER_FIELD</code><span>message, donde Frappe devuelve el usuario</span></div>
+            <div><code>FITIT_ANONYMOUS_USERS</code><span>Guest, que no recibe hooks</span></div>
+          </div>
+          <div class="honest reveal" style="--d:240ms">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true" style="flex:none;margin-top:2px"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M10 6v5m0 3v.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span><b>Límite conocido:</b> el tiempo real de Socket.IO aún no pasa por el proxy. El escritorio funciona, solo que sin actualizaciones en vivo.</span>
+          </div>
+        </div>
+        <div class="terminal reveal" style="--d:200ms">
+          <header><div class="dots"><i></i><i></i><i></i></div>fit-it · PowerShell</header>
+<pre><span class="c"># los secretos vienen de tu shell, nunca de un fichero</span>
+<span class="p">&gt; </span>$env:ERPNEXT_DB_PASSWORD = Read-Host -MaskInput
+<span class="p">&gt; </span>$env:ERPNEXT_ADMIN_PASSWORD = Read-Host -MaskInput
+<span class="p">&gt; </span>./integrations/erpnext/bootstrap.ps1
+
+<span class="c"># el núcleo, delante del sandbox</span>
+<span class="p">&gt; </span>$env:OPENAI_API_KEY = Read-Host -MaskInput
+<span class="p">&gt; </span>docker compose -p fitit-demo -f compose.yaml `
+    -f integrations/erpnext/compose.fitit.yaml up -d --build core
+
+<span class="c"># abre el escritorio a través de Fit-it</span>
+<span class="p">&gt; </span>start http://localhost:8000/desk/selling/fitit-overview</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="pitch">
+    <div class="wrap">
+      <span class="eyebrow reveal">El pitch</span>
+      <h2 class="reveal" style="--d:80ms">Si solo tienes <em>treinta segundos.</em></h2>
+      <div class="pitch reveal" style="--d:160ms">
+        <span class="timer"><svg viewBox="0 0 18 20" fill="none" aria-hidden="true"><circle cx="9" cy="11" r="7.5" stroke="currentColor" stroke-width="1.5"/><path d="M7 1.5h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="hand" d="M9 11V6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>30 segundos</span>
+        <p class="pitch-text" id="pitchText"><span>Cada empresa que usa ERPNext tiene la misma lista: pequeños cambios que cada persona necesita y que nunca entran en un sprint.</span> <span>Fit-it se coloca delante de ERPNext como un proxy.</span> <span>Cada usuario describe el cambio en un chat, un agente lo convierte en un pequeño hook de Python y, desde ese momento, esa persona ve su versión del ERP.</span> <span>ERPNext no se modifica, los permisos de Frappe siguen mandando y cada cambio queda auditado.</span> <span><em>El mismo ERP, a la medida de cada persona.</em></span></p>
+        <div class="pilot">
+          <p><b>Siguiente paso: un piloto.</b> Elegimos un equipo, ponemos Fit-it delante de su ERPNext y medimos cuántas de sus peticiones resuelven sin abrir un ticket.</p>
+          <a class="btn" href="#demo">Volver a ver la demo
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10h11m-4-5 5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="big">El mismo software.<br><em>A la medida de cada uno.</em></p>
+    <div class="row">
+      <span>fit·it · Kripta Studios</span>
+      <span>Prototipo de hackathon · GDG Coruña, octubre de 2026</span>
+      <span>Cualquier modelo: FITIT_MODEL=proveedor:modelo</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const $ = (s, r = document) => r.querySelector(s);
+
+  // Nav border and tape measure drift on scroll
+  const nav = $("#nav"), tape = $("#tape");
+  const onScroll = () => {
+    nav.classList.toggle("scrolled", scrollY > 8);
+    if (!reduce) tape.style.transform = `translateX(${-(scrollY * 0.45) % 1600}px)`;
+  };
+  addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+
+  // Scroll reveals and seams
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+  }, { threshold: 0.18, rootMargin: "0px 0px -8% 0px" });
+  document.querySelectorAll(".reveal, .seam").forEach((el) => io.observe(el));
+
+  // ---------- ERPNext demo ----------
+  const invoices = [
+    { id: "ACC-SINV-2026-00012", cust: "Aurora Clinic", date: "Fri 23 Oct", total: 368, paid: true, fri: true },
+    { id: "ACC-SINV-2026-00011", cust: "Brisa Architecture", date: "Wed 21 Oct", total: 324, paid: false },
+    { id: "ACC-SINV-2026-00010", cust: "Cedar Academy", date: "Fri 16 Oct", total: 840, paid: false, fri: true },
+    { id: "ACC-SINV-2026-00009", cust: "Delta Logistics", date: "Wed 14 Oct", total: 1250, paid: false },
+    { id: "ACC-SINV-2026-00008", cust: "Eira Bakery", date: "Fri 9 Oct", total: 610, paid: true, fri: true },
+    { id: "ACC-SINV-2026-00007", cust: "Faro Studio", date: "Tue 6 Oct", total: 455, paid: true },
+  ];
+  const eur = (n) => "€ " + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const rows = $("#rows"), erp = $("#erp"), body = $("#wbody"), text = $("#wtext"), send = $("#wsend");
+  const fitted = $("#fitted"), caption = $("#caption"), railAv = $("#railAv");
+  const tabChat = $("#tabChat"), tabMine = $("#tabMine");
+
+  const state = { user: "marta", hookSaved: false, run: 0 };
+
+  function renderRows(applyHook) {
+    rows.innerHTML = invoices.map((inv) => {
+      const changed = applyHook && inv.fri;
+      const now = changed ? Math.round(inv.total * 0.85 * 100) / 100 : inv.total;
+      return `<tr class="${inv.fri ? "fri" : ""}"><td>${inv.id}</td><td>${inv.cust}</td><td>${inv.date}</td>
+        <td><span class="status ${inv.paid ? "paid" : "unpaid"}">${inv.paid ? "Paid" : "Unpaid"}</span></td>
+        <td class="num"><span class="amt ${changed ? "changed" : ""}"><span class="old">${eur(inv.total)}</span><span class="new">${eur(now)}</span></span></td></tr>`;
+    }).join("");
+  }
+
+  const PROMPT = "Aplica un 15% de descuento a las facturas emitidas en viernes";
+  const DONE = "Hecho. Las facturas de los viernes muestran un 15% menos, solo para ti.";
+  const sleep = (ms) => new Promise((r) => setTimeout(r, reduce ? 0 : ms));
+  const alive = (id) => id === state.run;
+
+  function add(html, cls) {
+    const el = document.createElement("div");
+    el.className = cls;
+    el.innerHTML = html;
+    body.appendChild(el);
+    return el;
+  }
+  function say(s) {
+    caption.style.opacity = 0;
+    setTimeout(() => { caption.textContent = s; caption.style.opacity = 1; }, reduce ? 0 : 250);
+  }
+
+  function setTabs(mine) {
+    tabChat.classList.toggle("on", !mine);
+    tabMine.classList.toggle("on", mine);
+  }
+
+  function showLucia() {
+    body.innerHTML = "";
+    setTabs(true);
+    add(`<b>Aún no tienes cambios</b>Pide uno, o busca en el marketplace y suscríbete.`, "empty");
+    text.innerHTML = "";
+    fitted.classList.remove("show");
+    renderRows(false);
+    railAv.textContent = "L"; railAv.className = "av l me";
+    say("Lucía recarga la misma página: importes originales. Los hooks son de quien los pidió.");
+  }
+
+  function showMartaDone() {
+    body.innerHTML = "";
+    setTabs(false);
+    add(PROMPT, "msg user");
+    add(`<span class="saved">✓ guardado descuento_viernes v1</span>`, "msg bot");
+    add(DONE, "msg bot");
+    fitted.classList.add("show");
+    renderRows(true);
+    railAv.textContent = "M"; railAv.className = "av m me";
+    say("Marta conserva su cambio en cada recarga, hasta que lo desactive o lo deshaga.");
+  }
+
+  async function play() {
+    const id = ++state.run;
+    state.hookSaved = false;
+    body.innerHTML = "";
+    text.innerHTML = "";
+    setTabs(false);
+    fitted.classList.remove("show");
+    renderRows(false);
+    railAv.textContent = "M"; railAv.className = "av m me";
+    say("Marta abre FITIT Overview a través de Fit-it. El widget de chat ya viene cosido al escritorio.");
+    await sleep(1400); if (!alive(id)) return;
+
+    const prompt = PROMPT;
+    for (let i = 1; i <= prompt.length; i++) {
+      if (!alive(id)) return;
+      text.innerHTML = prompt.slice(0, i) + '<span class="caret"></span>';
+      send.classList.add("hot");
+      await sleep(28 + Math.random() * 45);
+    }
+    await sleep(450); if (!alive(id)) return;
+    text.innerHTML = ""; send.classList.remove("hot");
+    add(prompt, "msg user");
+    say("El agente lee la descripción de la API de ERPNext y consulta los datos como Marta.");
+
+    const stepsBox = add("", "steps");
+    const steps = [
+      ["list_endpoints", ""],
+      ["get_endpoint", " <em>Sales Invoice</em>"],
+      ["search_features", ""],
+      ["write_hook", " <em>descuento_viernes</em>"],
+      ["prueba con tus datos", ""],
+    ];
+    for (const [name, extra] of steps) {
+      await sleep(350); if (!alive(id)) return;
+      const s = document.createElement("div");
+      s.className = "step run";
+      s.innerHTML = `<i></i><span>${name}${extra}</span>`;
+      stepsBox.appendChild(s);
+      await sleep(650 + Math.random() * 400); if (!alive(id)) return;
+      s.className = "step ok";
+    }
+    await sleep(300); if (!alive(id)) return;
+    say("Escribe un hook de nueve líneas, el guard AST lo revisa y se prueba antes de guardarlo.");
+    add(`<span class="f">+++ b/descuento_viernes.py</span>\n<span class="a">+ROUTE = "GET /api/resource/Sales Invoice"</span><span class="a">+    if day.weekday() == 4:</span><span class="a">+        inv["grand_total"] *= 0.85</span>`, "diff");
+    await sleep(1300); if (!alive(id)) return;
+    add(`<span class="saved">✓ guardado descuento_viernes v1 · recargando</span>`, "msg bot");
+    await sleep(500); if (!alive(id)) return;
+
+    erp.classList.remove("reloading"); void erp.offsetWidth; erp.classList.add("reloading");
+    await sleep(260); if (!alive(id)) return;
+    renderRows(true);
+    fitted.classList.add("show");
+    state.hookSaved = true;
+    say("Las facturas de los viernes bajan un 15%, solo en el escritorio de Marta. ERPNext no ha cambiado.");
+    await sleep(700); if (!alive(id)) return;
+    add(DONE, "msg bot");
+
+    await sleep(4200); if (!alive(id)) return;
+    selectUser("lucia", true);
+    await sleep(4800); if (!alive(id)) return;
+    selectUser("marta", true);
+  }
+
+  // Persona switch
+  const pill = $(".personas .pill");
+  const buttons = document.querySelectorAll(".personas button");
+  function movePill() {
+    const b = [...buttons].find((x) => x.getAttribute("aria-pressed") === "true");
+    pill.style.left = b.offsetLeft + "px";
+    pill.style.width = b.offsetWidth + "px";
+  }
+  function selectUser(user, fromScript) {
+    if (!fromScript) state.run++;
+    state.user = user;
+    buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.user === user)));
+    movePill();
+    erp.classList.remove("reloading"); void erp.offsetWidth; erp.classList.add("reloading");
+    setTimeout(() => {
+      if (user === "lucia") showLucia();
+      else if (state.hookSaved || !fromScript) { state.hookSaved = true; showMartaDone(); }
+    }, reduce ? 0 : 260);
+  }
+  buttons.forEach((b) => b.addEventListener("click", () => selectUser(b.dataset.user, false)));
+  addEventListener("resize", movePill);
+  document.fonts && document.fonts.ready.then(movePill);
+  movePill();
+
+  $("#replay").addEventListener("click", () => {
+    buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.user === "marta")));
+    movePill();
+    play();
+  });
+
+  // Pitch: light each sentence at speaking pace
+  const pitchSpans = document.querySelectorAll("#pitchText span");
+  const pitchIo = new IntersectionObserver(async (e) => {
+    if (!e[0].isIntersecting) return;
+    pitchIo.disconnect();
+    for (const s of pitchSpans) {
+      s.classList.add("lit");
+      await sleep(Math.max(1200, s.textContent.length * 38));
+    }
+  }, { threshold: 0.5 });
+  pitchIo.observe($("#pitchText"));
+
+  renderRows(false);
+  if (reduce) { showMartaDone(); state.hookSaved = true; }
+  else {
+    const demoIo = new IntersectionObserver((e) => {
+      if (e[0].isIntersecting) { play(); demoIo.disconnect(); }
+    }, { threshold: 0.35 });
+    demoIo.observe($(".window"));
+  }
+})();
+</script>
+</body>
+</html>
