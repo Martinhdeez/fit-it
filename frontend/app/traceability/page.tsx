@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 
 type Ev = { seq: number; ts: number; kind: string; user: string | null; [k: string]: unknown };
@@ -236,10 +236,62 @@ function HBar({ data, color, unit = "" }: { data: { name: string; value: number 
   );
 }
 
-type Stats = { n: number; p50: number; p95: number; avg: number };
-function stats(evs: Ev[]): Stats {
-  const ms = evs.map((e) => Number(e.ms) || 0);
-  return { n: ms.length, p50: pct(ms, 50), p95: pct(ms, 95), avg: ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : 0 };
+type Stats = { n: number; p50: number; p95: number; avg: number; max: number };
+function statsOf(ms: number[]): Stats {
+  return { n: ms.length, p50: pct(ms, 50), p95: pct(ms, 95), avg: ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : 0, max: ms.length ? Math.max(...ms) : 0 };
+}
+const stats = (evs: Ev[]) => statsOf(evs.map((e) => Number(e.ms) || 0));
+const avgOf = (v: number[]) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0);
+
+const NUMBER_CARD = "/api/method/frappe.desk.doctype.number_card.number_card.get_result";
+const CHART = "/api/method/frappe.desk.doctype.dashboard_chart.dashboard_chart.get";
+const pathOf = (e: Ev) => s(e.path).split("?")[0];
+const BURST_S = 3;
+
+function Delta({ a, b }: { a: Stats; b: Stats }) {
+  if (!a.n || !b.n) return <span className="muted">—</span>;
+  const delta = b.avg - a.avg, rel = a.avg ? (delta / a.avg) * 100 : 0;
+  return <span className={`delta ${delta > 0 ? "up" : "down"}`}>{delta >= 0 ? "+" : "−"}{fmt(Math.abs(delta))} ms, {rel >= 0 ? "+" : "−"}{Math.abs(Math.round(rel))}%</span>;
+}
+
+type GroupRow = { name: string; o: Stats; f: Stats; dms: number | null; dpct: number | null };
+const COLS: [string, string, (r: GroupRow) => number | string | null][] = [
+  ["Route group", "name", (r) => r.name],
+  ["Orig. req", "on", (r) => r.o.n], ["avg", "oavg", (r) => (r.o.n ? r.o.avg : null)], ["p50", "op50", (r) => (r.o.n ? r.o.p50 : null)],
+  ["p95", "op95", (r) => (r.o.n ? r.o.p95 : null)], ["max", "omax", (r) => (r.o.n ? r.o.max : null)],
+  ["Fit-it req", "fn", (r) => r.f.n], ["avg", "favg", (r) => (r.f.n ? r.f.avg : null)], ["p50", "fp50", (r) => (r.f.n ? r.f.p50 : null)],
+  ["p95", "fp95", (r) => (r.f.n ? r.f.p95 : null)], ["max", "fmax", (r) => (r.f.n ? r.f.max : null)],
+  ["Δ ms", "dms", (r) => r.dms], ["Δ %", "dpct", (r) => r.dpct],
+];
+
+function GroupTable({ rows }: { rows: GroupRow[] }) {
+  const [sort, setSort] = useState<[string, number]>(["on", -1]);
+  if (!rows.length) return null;
+  const get = COLS.find((c) => c[1] === sort[0])![2];
+  const sorted = [...rows].sort((x, y) => {
+    const a = get(x), b = get(y);
+    if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
+    return (a < b ? -1 : a > b ? 1 : 0) * sort[1];
+  });
+  const num = (v: number | string | null, unit: string) => (v == null ? "—" : typeof v === "number" ? `${fmt(v)}${unit}` : v);
+  const sign = (v: number | null, unit: string) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${fmt(Math.abs(v))}${unit}`);
+  return (
+    <div className="scroll ptable">
+      <table>
+        <thead><tr>{COLS.map(([label, key]) => (
+          <th key={key} onClick={() => setSort([key, sort[0] === key ? -sort[1] : key === "name" ? 1 : -1])} aria-sort={sort[0] === key ? (sort[1] > 0 ? "ascending" : "descending") : "none"}>
+            {label}{sort[0] === key ? (sort[1] > 0 ? " ▲" : " ▼") : ""}
+          </th>))}</tr></thead>
+        <tbody>{sorted.map((r) => (
+          <tr key={r.name}>
+            <td title={r.name}>{clip(r.name, 44)}</td>
+            {COLS.slice(1, 11).map(([, key, g]) => <td key={key} className={key === "on" || key === "fn" ? "sep" : ""}>{num(g(r), key === "on" || key === "fn" ? "" : " ms")}</td>)}
+            <td className={r.dms == null ? "" : r.dms > 0 ? "worse" : "better"}>{sign(r.dms, " ms")}</td>
+            <td className={r.dpct == null ? "" : r.dpct > 0 ? "worse" : "better"}>{sign(r.dpct, "%")}</td>
+          </tr>))}</tbody>
+      </table>
+    </div>
+  );
 }
 
 function PerfTile({ title, st, color }: { title: string; st: Stats; color: string }) {
@@ -335,8 +387,35 @@ export default function Traceability() {
     const perfGroups = topN(groupCounts, 8).map(({ name }) => {
       const g = req.filter((e) => group(e) === name);
       const o = stats(g.filter((e) => !hooksOf(e).length)), f = stats(g.filter((e) => hooksOf(e).length));
-      return { name, Original: o.n ? Math.round(o.avg) : null, "With Fit-it": f.n ? Math.round(f.avg) : null };
+      return { name, Original: o.n ? Math.round(o.avg) : null, "With Fit-it": f.n ? Math.round(f.avg) : null, o, f,
+        dms: o.n && f.n ? f.avg - o.avg : null, dpct: o.n && f.n && o.avg ? ((f.avg - o.avg) / o.avg) * 100 : null };
     });
+    // Cards: native number cards / charts vs Fit-it cards (GET /x/<name>).
+    const msOf = (evs: Ev[]) => evs.map((e) => Number(e.ms) || 0);
+    const ncAll = req.filter((e) => pathOf(e) === NUMBER_CARD);
+    const ncPlain = ncAll.filter((e) => !hooksOf(e).length), ncHooked = ncAll.filter((e) => hooksOf(e).length);
+    const nativeCharts = req.filter((e) => pathOf(e) === CHART);
+    const nativeW = ncAll.concat(nativeCharts);
+    const xCards = req.filter((e) => s(e.method) === "GET" && pathOf(e).startsWith("/x/"));
+    const xMs = new Map<string, number[]>();
+    for (const e of xCards) { const n = pathOf(e).slice(3).split("/")[0]; xMs.set(n, [...(xMs.get(n) ?? []), Number(e.ms) || 0]); }
+    const cardBars = [
+      { name: "Native number cards", v: msOf(ncPlain), fit: false },
+      { name: "Native card + hook", v: msOf(ncHooked), fit: false },
+      { name: "Native charts", v: msOf(nativeCharts), fit: false },
+      ...[...xMs.entries()].map(([name, v]) => ({ name: `/x/${name}`, v, fit: true })),
+    ].filter((b) => b.v.length).map((b) => ({ name: b.name, value: Math.round(avgOf(b.v)), n: b.v.length, fit: b.fit })).sort((a, b) => b.value - a.value);
+    // Page view ~ burst of get_result calls within BURST_S seconds (each overview load fires ~8).
+    // ponytail: burst heuristic, no page-view id in the trace; add one to request.proxied if exactness matters.
+    const bursts: { t: number; native: number; fit: number | null }[] = [];
+    for (const e of [...ncAll].sort((a, b) => a.ts - b.ts)) {
+      if (bursts.length && e.ts - bursts[bursts.length - 1].t <= BURST_S) continue;
+      const inW = (x: Ev) => x.ts >= e.ts && x.ts <= e.ts + BURST_S;
+      const fx = msOf(xCards.filter(inW));
+      bursts.push({ t: e.ts, native: Math.max(0, ...msOf(nativeW.filter(inW))), fit: fx.length ? Math.max(...fx) : null });
+    }
+    const loadSeries = bursts.map((b) => ({ t: new Date(b.t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+      "Native only": Math.round(b.native), "Incl. Fit-it cards": Math.round(Math.max(b.native, b.fit ?? 0)) }));
     const lifecycle = shown.filter((e) => ["hook.saved", "hook.rejected", "hook.restored", "hook.toggled", "hook.deleted"].includes(e.kind) || e.kind.startsWith("feature."));
     return {
       shown, req, applied, failed, series, step, lifecycle, tools,
@@ -352,6 +431,8 @@ export default function Traceability() {
       toolUse: topN(count(tools, (e) => s(e.tool)), 8),
       byGroup, showUser, hookedCount: hooked.length,
       orig: stats(plain), fit: stats(hooked), perfGroups,
+      nativeSt: stats(nativeW), xSt: stats(xCards), cardBars, loadSeries, burstsWithFit: bursts.filter((b) => b.fit != null).length,
+      loadNative: statsOf(bursts.map((b) => b.native)), loadWith: statsOf(bursts.map((b) => Math.max(b.native, b.fit ?? 0))),
       reqFlows: hooked.flatMap((e) => hooksOf(e).map((h) => [...(showUser ? [who(e)] : []), grp(e), h, statusClass(Number(e.status))]))
         .concat(failed.map((e) => [...(showUser ? [who(e)] : []), s(e.route), s(e.hook), "failed"])),
       agentFlows: shown.filter((e) => ["agent.tool", "hook.saved", "hook.rejected"].includes(e.kind))
@@ -440,6 +521,53 @@ export default function Traceability() {
                     <HBar data={d.slowHooks} color={C.amber} unit=" ms" />
                   </div>
                 </div>
+                <h3>Route groups in detail <span className="muted">click a header to sort</span></h3>
+                <GroupTable rows={d.perfGroups} />
+              </section>
+              <section className="tcard perf">
+                <header><h2>Cards: native vs Fit-it</h2></header>
+                <p className="muted perf-sub">Fit-it cards load after the page, in parallel; their time adds to the page only if slower than the native widgets.</p>
+                <div className="perf-tiles">
+                  <PerfTile title="Native widgets (number cards + charts)" st={d.nativeSt} color={C.slate} />
+                  <PerfTile title="Fit-it cards (/x/…)" st={d.xSt} color={C.violet} />
+                  <Delta a={d.nativeSt} b={d.xSt} />
+                </div>
+                <h3>Average ms per card</h3>
+                {d.cardBars.length ? (
+                  <ResponsiveContainer width="100%" height={Math.max(120, d.cardBars.length * 30 + 20)}>
+                    <BarChart data={d.cardBars} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+                      <CartesianGrid horizontal={false} stroke="var(--line)" />
+                      <XAxis type="number" {...axis} unit=" ms" />
+                      <YAxis type="category" dataKey="name" width={190} {...axis} tick={{ fill: "var(--ink-soft)", fontSize: 11 }} tickFormatter={(v: string) => clip(v, 30)} />
+                      <Tooltip {...tip} formatter={(v: number, _n: string, p: { payload?: { n: number } }) => [`${fmt(v)} ms · ${p.payload?.n ?? 0} req`, ""]} separator="" />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={16} isAnimationActive={false}>
+                        {d.cardBars.map((b) => <Cell key={b.name} fill={b.fit ? C.violet : b.name.includes("hook") ? C.amber : C.slate} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <p className="empty">No card requests in this window yet.</p>}
+              </section>
+              <section className="tcard perf">
+                <header><h2>Page load with vs without Fit-it cards</h2><span>{d.loadNative.n} overview loads, {d.burstsWithFit} with Fit-it cards</span></header>
+                <p className="muted perf-sub">An overview load is approximated as a burst of number-card requests within {BURST_S} s. Native only = slowest native widget in the burst; incl. Fit-it cards = max(native, slowest /x/ card).</p>
+                <div className="perf-tiles">
+                  <PerfTile title="Overview load (native only)" st={d.loadNative} color={C.slate} />
+                  <PerfTile title="Overview load incl. Fit-it cards" st={d.loadWith} color={C.violet} />
+                  <Delta a={d.loadNative} b={d.loadWith} />
+                </div>
+                {d.loadSeries.length ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={d.loadSeries} margin={{ left: -8, right: 8, top: 8 }}>
+                      <CartesianGrid vertical={false} stroke="var(--line)" />
+                      <XAxis dataKey="t" {...axis} minTickGap={24} />
+                      <YAxis {...axis} unit=" ms" />
+                      <Tooltip {...tip} formatter={(v: number) => `${fmt(v)} ms`} />
+                      <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+                      <Line dataKey="Native only" stroke={C.slate} strokeWidth={2} dot={false} isAnimationActive={false} />
+                      <Line dataKey="Incl. Fit-it cards" stroke={C.violet} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : <p className="empty">No overview loads in this window yet.</p>}
               </section>
               <div className="kpis">
                 <Kpi label="Requests" value={fmt(d.req.length)} trend={trend("requests")} spark={spark("requests")} />
@@ -715,6 +843,13 @@ html, body { background: var(--bg, #f7f7f8); height: auto; }
 .trace .delta { font-weight:600; font-variant-numeric:tabular-nums; padding:6px 12px; border-radius:999px; white-space:nowrap;
   background:color-mix(in srgb, var(--c) 14%, transparent); color:var(--c); --c:var(--good); }
 .trace .delta.up { --c:#e5a50a; }
+.trace .ptable { margin-top:4px; }
+.trace .ptable th { cursor:pointer; user-select:none; white-space:nowrap; position:static; }
+.trace .ptable tbody tr { cursor:default !important; }
+.trace .ptable td { font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--ink); }
+.trace .ptable td:first-child { color:var(--ink-soft); font-family:var(--mono); font-size:12px; }
+.trace .ptable td.sep { border-left:1px solid var(--line); }
+.trace .ptable td.worse { color:#e5a50a; font-weight:600; } .trace .ptable td.better { color:var(--good); font-weight:600; }
 .trace .recharts-legend-item-text { color:var(--ink-soft) !important; }
 @media (max-width: 1000px) { .trace .perf-tiles { grid-template-columns:minmax(0,1fr); justify-items:start; } .trace .kpis { grid-template-columns:repeat(2, minmax(0,1fr)); } .trace .grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width: 600px) {
