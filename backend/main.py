@@ -64,21 +64,18 @@ def route_of(user: str, name: str):
 
 
 def apply_hooks(user, cookie, method, path, data):
-    """Returns (response, applied): the hooked JSON, a 502 on HookError, or None if no hook matched."""
-    ctx = hooks.Ctx(user, Api(cookie))
-    start = time.perf_counter()
+    """Returns (response, names): the hooked JSON, a 502 on HookError, or None if no hook matched."""
     try:
-        result, applied = hooks.run_hooks(user, method, path, data, ctx)
+        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie)))
     except hooks.HookError as e:
         trace.emit("hook.failed", user=user, hook=e.hook, route=route_of(user, e.hook), error=str(e))
         return JSONResponse({"error": "hook_failed", "hook": e.hook, "detail": str(e)}, 502), []
-    ms = round((time.perf_counter() - start) * 1000, 1)
-    # ponytail: run_hooks runs the chain as one call, so ms and logs are for the whole chain, not per hook
-    for name in applied:
-        trace.emit("hook.applied", user=user, hook=name, route=route_of(user, name), ms=ms, logs=list(ctx.logs))
+    for h in applied:
+        trace.emit("hook.applied", user=user, hook=h["name"], route=h["route"], ms=h["ms"], logs=h["logs"])
     if not applied:
         return None, []
-    return JSONResponse(result, headers={"x-fitit-hooks": ",".join(applied)}), applied
+    names = [h["name"] for h in applied]
+    return JSONResponse(result, headers={"x-fitit-hooks": ",".join(names)}), names
 
 
 def finish(response: Response, user, method, path, start, applied) -> Response:
@@ -135,6 +132,21 @@ def delete_hook(name: str, request: Request):
         return not_found()
     trace.emit("hook.deleted", user=user, hook=name)
     return Response(status_code=204)
+
+
+@app.post("/fitit/hooks/{name}/undo")
+def undo_hook(name: str, request: Request):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    try:
+        version, diff = hooks.undo_hook(user, name)
+    except KeyError:
+        return not_found()
+    except ValueError as e:
+        return JSONResponse({"error": "undo_failed", "detail": str(e)}, 409)
+    trace.emit("hook.restored", user=user, hook=name, version=version)
+    return {"name": name, "version": version, "diff": diff}
 
 
 @app.websocket("/fitit/ws")

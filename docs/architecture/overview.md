@@ -9,7 +9,7 @@ Diagram: [`.artifacts/pages/reverse-proxy-flow.html`](../../.artifacts/pages/rev
     ▲                  │  ▲
     └──WebSocket───────┘  └── Claude API (coding agent)
                         │
-                        └── /workspaces/{user_id}/*.py (per-user hooks)
+                        └── Postgres (core only): hooks, hook versions, chat history
 ```
 
 The browser never reaches the client app directly: in Docker Compose the app has no published port ([ADR 0002](../adr/0002-reverse-proxy-in-front-of-unmodified-app.md)).
@@ -19,7 +19,7 @@ The browser never reaches the client app directly: in Docker Compose the app has
 | Component | Responsibility | Spec | Epic |
 |---|---|---|---|
 | Proxy | Forwards every request to the client app, resolves the user, applies hooks to JSON, injects the widget into HTML | [proxy.md](../specs/proxy.md) | [E2](../epics/e2-proxy-core.md) |
-| Hook runtime | Validates (AST guard), stores, loads and runs per-user hooks | [hook-contract.md](../specs/hook-contract.md) | [E3](../epics/e3-hook-runtime.md) |
+| Hook runtime | Validates (AST guard), stores (with versions and undo), loads and runs per-user hooks | [hook-contract.md](../specs/hook-contract.md) | [E3](../epics/e3-hook-runtime.md) |
 | Coding agent | Turns a chat message into a validated hook using Claude and tools | [agent.md](../specs/agent.md) | [E4](../epics/e4-coding-agent.md) |
 | Embed widget | Chat, live agent steps, diffs and hook toggles inside the client page | [embed-widget.md](../specs/embed-widget.md) | [E5](../epics/e5-embed-widget.md) |
 | Trace | Records every proxied request, hook run and agent step | [trace-events.md](../specs/trace-events.md) | [E6](../epics/e6-traceability.md) |
@@ -60,5 +60,4 @@ backend/   Fit-it core (FastAPI): main.py (proxy + routes), hooks.py, agent.py, 
 demo/      Demo clinic app (FastAPI), the stand-in for a customer app
 docs/      This documentation
 tests/     acceptance/ (blind acceptance tests)
-workspaces/  Per-user hooks at runtime (gitignored)
 ```

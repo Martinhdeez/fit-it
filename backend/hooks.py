@@ -3,10 +3,11 @@ import ast
 import difflib
 import json
 import math
-import os
 import re
+import time
 from datetime import date, datetime, timedelta
-from pathlib import Path
+
+import db
 
 NAME_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 USER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -23,7 +24,7 @@ SCOPE_VALUES = {"date": date, "datetime": datetime, "timedelta": timedelta, "mat
 
 
 class HookError(Exception):
-    def __init__(self, hook: str, detail: str):
+    def __init__(self, hook: str | None, detail: str):
         super().__init__(detail)
         self.hook = hook
 
@@ -83,38 +84,36 @@ def check_code(code: str) -> tuple[str, str]:
     return method, path
 
 
-def _dir(user: str) -> Path:
-    return Path(os.environ.get("WORKSPACES", "./workspaces")) / user
+def _diff(name: str, old: str, new: str) -> str:
+    return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), f"a/{name}.py", f"b/{name}.py"))
 
 
-def _find(user: str, name: str) -> Path:
-    if USER_RE.match(user) and NAME_RE.match(name):
-        for p in (_dir(user) / f"{name}.py", _dir(user) / f"{name}.py.off"):
-            if p.exists():
-                return p
-    raise KeyError(name)
+def _valid(user: str, name: str) -> bool:
+    return bool(USER_RE.match(user) and NAME_RE.match(name))
+
+
+def _route(code: str) -> str | None:
+    try:
+        return " ".join(check_code(code))
+    except ValueError:
+        return None
 
 
 def list_hooks(user: str) -> list[dict]:
-    if not USER_RE.match(user) or not _dir(user).is_dir():
+    if not USER_RE.match(user):
         return []
-    hooks = []
-    for p in _dir(user).iterdir():
-        enabled = p.name.endswith(".py")
-        name = p.name.removesuffix(".off").removesuffix(".py")
-        if not (enabled or p.name.endswith(".py.off")) or not NAME_RE.match(name):
-            continue
-        code = p.read_text("utf-8")
-        try:
-            route = " ".join(check_code(code))
-        except ValueError:
-            route = None
-        hooks.append({"name": name, "route": route, "enabled": enabled, "code": code})
-    return sorted(hooks, key=lambda h: h["name"])
+    with db.connect() as conn:
+        rows = conn.execute("SELECT name, enabled, code FROM hooks WHERE user_id = %s ORDER BY name", (user,)).fetchall()
+    return [{"name": name, "route": _route(code), "enabled": enabled, "code": code} for name, enabled, code in rows]
 
 
 def read_hook(user: str, name: str) -> str:
-    return _find(user, name).read_text("utf-8")
+    if _valid(user, name):
+        with db.connect() as conn:
+            row = conn.execute("SELECT code FROM hooks WHERE user_id = %s AND name = %s", (user, name)).fetchone()
+        if row:
+            return row[0]
+    raise KeyError(name)
 
 
 def save_hook(user: str, name: str, code: str) -> str:
@@ -122,33 +121,73 @@ def save_hook(user: str, name: str, code: str) -> str:
         raise ValueError(f"invalid user id '{user}'")
     if not NAME_RE.match(name):
         raise ValueError(f"invalid hook name '{name}': must match {NAME_RE.pattern}")
-    check_code(code)
-    try:
-        old_path = _find(user, name)
-        old = old_path.read_text("utf-8")
-        old_path.unlink()
-    except KeyError:
-        old = ""
-    _dir(user).mkdir(parents=True, exist_ok=True)
-    (_dir(user) / f"{name}.py").write_text(code, "utf-8")
-    return "".join(difflib.unified_diff(old.splitlines(True), code.splitlines(True), f"a/{name}.py", f"b/{name}.py"))
+    route = " ".join(check_code(code))
+    with db.connect() as conn:
+        old = conn.execute("SELECT code FROM hooks WHERE user_id = %s AND name = %s FOR UPDATE", (user, name)).fetchone()
+        (version,) = conn.execute(
+            "INSERT INTO hook_versions (user_id, name, version, code) SELECT %s, %s, coalesce(max(version), 0) + 1, %s"
+            " FROM hook_versions WHERE user_id = %s AND name = %s RETURNING version",
+            (user, name, code, user, name)).fetchone()
+        conn.execute(
+            "INSERT INTO hooks (user_id, name, route, code, enabled, version) VALUES (%s, %s, %s, %s, true, %s)"
+            " ON CONFLICT (user_id, name) DO UPDATE SET route = excluded.route, code = excluded.code,"
+            " enabled = true, version = excluded.version, updated_at = now()",
+            (user, name, route, code, version))
+    return _diff(name, old[0] if old else "", code)
+
+
+def undo_hook(user: str, name: str) -> tuple[int, str]:
+    if not _valid(user, name):
+        raise KeyError(name)
+    with db.connect() as conn:
+        row = conn.execute("SELECT code, version FROM hooks WHERE user_id = %s AND name = %s FOR UPDATE",
+                           (user, name)).fetchone()
+        if not row:
+            raise KeyError(name)
+        current, version = row
+        prev = conn.execute("SELECT code FROM hook_versions WHERE user_id = %s AND name = %s AND version = %s",
+                            (user, name, version - 1)).fetchone()
+        if not prev:
+            raise ValueError("no earlier version")
+        route = " ".join(check_code(prev[0]))  # a guard tightened since that save still applies
+        conn.execute("UPDATE hooks SET code = %s, route = %s, version = %s, updated_at = now()"
+                     " WHERE user_id = %s AND name = %s", (prev[0], route, version - 1, user, name))
+    return version - 1, _diff(name, current, prev[0])
 
 
 def toggle_hook(user: str, name: str) -> bool:
-    p = _find(user, name)
-    enabled = p.suffix == ".off"
-    p.rename(_dir(user) / (f"{name}.py" if enabled else f"{name}.py.off"))
-    return enabled
+    if _valid(user, name):
+        with db.connect() as conn:
+            row = conn.execute("UPDATE hooks SET enabled = NOT enabled, updated_at = now()"
+                               " WHERE user_id = %s AND name = %s RETURNING enabled", (user, name)).fetchone()
+        if row:
+            return row[0]
+    raise KeyError(name)
 
 
 def delete_hook(user: str, name: str) -> None:
-    _find(user, name).unlink()
+    if _valid(user, name):
+        with db.connect() as conn:
+            if conn.execute("DELETE FROM hooks WHERE user_id = %s AND name = %s", (user, name)).rowcount:
+                return
+    raise KeyError(name)
 
 
 def _matches(route_path: str, path: str) -> bool:
     want, got = route_path.split("/"), path.split("/")
     return len(want) == len(got) and all(
         w == g or (w.startswith("{") and w.endswith("}") and g != "") for w, g in zip(want, got))
+
+
+def _run(hook: str | None, code: str, data, ctx):
+    scope = {"__builtins__": SAFE_BUILTINS, **SCOPE_VALUES}
+    try:
+        exec(compile(code, f"{hook or 'dry_run'}.py", "exec"), scope)
+        data = scope["run"](data, ctx)
+        json.dumps(data)
+    except Exception as e:
+        raise HookError(hook, f"{type(e).__name__}: {e}")
+    return data
 
 
 def run_hooks(user: str, method: str, path: str, data, ctx):
@@ -163,12 +202,13 @@ def run_hooks(user: str, method: str, path: str, data, ctx):
             raise HookError(name, str(e))  # a stored hook that no longer passes the guard fails closed
         if route_method != method.upper() or not _matches(route_path, path):
             continue
-        scope = {"__builtins__": SAFE_BUILTINS, **SCOPE_VALUES}
-        try:
-            exec(compile(hook["code"], f"{name}.py", "exec"), scope)
-            data = scope["run"](data, ctx)
-            json.dumps(data)
-        except Exception as e:
-            raise HookError(name, f"{type(e).__name__}: {e}")
-        applied.append(name)
+        logged, start = len(ctx.logs), time.perf_counter()
+        data = _run(name, hook["code"], data, ctx)
+        applied.append({"name": name, "route": hook["route"], "ms": round((time.perf_counter() - start) * 1000, 3),
+                        "logs": ctx.logs[logged:]})
     return data, applied
+
+
+def dry_run(user: str, code: str, data, api):
+    check_code(code)
+    return _run(None, code, data, Ctx(user, api))

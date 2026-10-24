@@ -1,18 +1,19 @@
 """Coding agent: turns a chat message into a validated hook. Spec: docs/specs/agent.md."""
 import json
 import os
-import shutil
-import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from pydantic_ai import Agent, CallToolsNode, FunctionToolCallEvent, FunctionToolResultEvent, ModelRetry, RunContext
+from psycopg.types.json import Jsonb
+from pydantic_ai import (Agent, CallToolsNode, FunctionToolCallEvent, FunctionToolResultEvent, ModelMessagesTypeAdapter,
+                         ModelRetry, RunContext)
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
+import db
 import hooks
 import trace
 
 MAX_REJECTIONS = 3
+HISTORY_TURNS = 20
 
 SYSTEM_PROMPT = """You are Fit-it, a coding agent that personalizes a web app for one user by writing hooks.
 A hook rewrites the JSON body of one endpoint of the app, for this user only. The app itself is never changed.
@@ -64,11 +65,35 @@ class Deps:
 
 
 # No model here: FITIT_MODEL is read at run time (handle_ws), so importing needs no API key.
-agent = Agent(deps_type=Deps, output_type=str, system_prompt=SYSTEM_PROMPT, retries=3)
+# instructions, not system_prompt: sent with every request, so it survives the history window (ADR 0019).
+agent = Agent(deps_type=Deps, output_type=str, instructions=SYSTEM_PROMPT, retries=3)
 
 
 def model_name() -> str:
     return os.environ.get("FITIT_MODEL", "anthropic:claude-opus-5-5")
+
+
+def load_history(user: str) -> list:
+    """The user's last HISTORY_TURNS turns, oldest first, as one message list."""
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT turn FROM (SELECT id, turn FROM messages WHERE user_id = %s ORDER BY id DESC LIMIT %s) t"
+            " ORDER BY id", (user, HISTORY_TURNS)).fetchall()
+    return ModelMessagesTypeAdapter.validate_python([m for (turn,) in rows for m in turn])
+
+
+def save_turn(user: str, messages: list) -> None:
+    turn = ModelMessagesTypeAdapter.dump_python(messages, mode="json")
+    for m in turn:
+        if m.get("kind") == "request":
+            m["instructions"] = None  # the prompt is never stored (ADR 0019)
+    with db.connect() as conn:
+        conn.execute("INSERT INTO messages (user_id, turn) VALUES (%s, %s)", (user, Jsonb(turn)))
+
+
+def clear_history(user: str) -> None:
+    with db.connect() as conn:
+        conn.execute("DELETE FROM messages WHERE user_id = %s", (user,))
 
 
 @agent.tool
@@ -124,15 +149,7 @@ def dry_run(deps: Deps, name: str, code: str, method: str, path: str):
     if not virtual and (method != "GET" or "{" in path):
         return None
     data = None if virtual else deps.api.get(path)
-    # hooks.py exports no "run this code" helper, so the candidate is saved under a throwaway user id and run
-    # through run_hooks, then removed. The real user's hooks are never touched.
-    temp = f"dryrun-{uuid.uuid4().hex}"
-    try:
-        hooks.save_hook(temp, name, code)
-        result, _ = hooks.run_hooks(temp, method, path, data, hooks.Ctx(deps.user, deps.api))
-        return result
-    finally:
-        shutil.rmtree(Path(os.environ.get("WORKSPACES", "./workspaces")) / temp, ignore_errors=True)
+    return hooks.dry_run(deps.user, code, data, deps.api)
 
 
 @agent.tool(retries=MAX_REJECTIONS + 1)
@@ -162,7 +179,6 @@ def write_hook(ctx: RunContext[Deps], name: str, code: str) -> str:
 async def handle_ws(websocket, user: str, api) -> None:
     if websocket.client_state == WebSocketState.CONNECTING:
         await websocket.accept()
-    history = []
     while True:
         try:
             msg = await websocket.receive_json()
@@ -181,6 +197,7 @@ async def handle_ws(websocket, user: str, api) -> None:
                 await websocket.send_json(deps.events.pop(0))
 
         try:
+            history = load_history(user)  # every message: nothing cached per connection (ADR 0019)
             async with agent.iter(text, deps=deps, message_history=history, model=model_name()) as run:
                 async for node in run:
                     if not isinstance(node, CallToolsNode):
@@ -194,7 +211,7 @@ async def handle_ws(websocket, user: str, api) -> None:
                             elif isinstance(event, FunctionToolResultEvent):
                                 await flush()
             await flush()
-            history = run.result.all_messages()
+            save_turn(user, run.result.new_messages())
             trace.emit("agent.answer", user=user, text=run.result.output)
             await websocket.send_json({"type": "text", "text": run.result.output})
         except Exception as e:

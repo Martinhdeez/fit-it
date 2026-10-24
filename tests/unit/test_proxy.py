@@ -1,13 +1,18 @@
 import importlib
+import os
 import shutil
 import sys
 import types
+import uuid
 
 import httpx
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import db
+import hooks
 import main
 import trace
 
@@ -17,17 +22,31 @@ def hook(route, body="return data"):
 
 
 @pytest.fixture(autouse=True)
-def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACES", str(tmp_path))
+def database(monkeypatch):
+    base = os.environ["DATABASE_URL"]
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    url = f"{base}?options=-csearch_path%3D{schema}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.init()
+    yield url
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture(autouse=True)
+def env(database, monkeypatch):
     monkeypatch.setenv("BASE_URL", "http://demo:8001")
     events = []
     monkeypatch.setattr(trace, "emit", lambda kind, **f: events.append({"kind": kind, **f}))
     return events
 
 
-def write(tmp_path, user, name, code, enabled=True):
-    (tmp_path / user).mkdir(exist_ok=True)
-    (tmp_path / user / (f"{name}.py" if enabled else f"{name}.py.off")).write_text(code)
+def write(user, name, code, enabled=True):
+    hooks.save_hook(user, name, code)
+    if not enabled:
+        hooks.toggle_hook(user, name)
 
 
 def client(user=None):
@@ -58,16 +77,17 @@ def test_login_cookie_passes_through():
     assert c.get("/api/me").json()["id"] == "gerente"
 
 
-def test_hook_applies_only_to_its_user(tmp_path, env):
-    write(tmp_path, "gerente", "a_count", hook("GET /api/invoices", 'ctx.log("hi")\n    return len(data)'))
-    write(tmp_path, "gerente", "b_wrap", hook("GET /api/invoices", 'return {"n": data}'))
-    write(tmp_path, "gerente", "c_off", hook("GET /api/invoices", "return 0"), enabled=False)
+def test_hook_applies_only_to_its_user(env):
+    write("gerente", "a_count", hook("GET /api/invoices", 'ctx.log("hi")\n    return len(data)'))
+    write("gerente", "b_wrap", hook("GET /api/invoices", 'ctx.log("bye")\n    return {"n": data}'))
+    write("gerente", "c_off", hook("GET /api/invoices", "return 0"), enabled=False)
     n = len(demo("gerente").get("/api/invoices").json())
     r = client("gerente").get("/api/invoices?x=1")
     assert r.json() == {"n": n} and r.headers["x-fitit-hooks"] == "a_count,b_wrap"
     applied = [e for e in env if e["kind"] == "hook.applied"]
     assert [e["hook"] for e in applied] == ["a_count", "b_wrap"]
     assert applied[0]["route"] == "GET /api/invoices" and applied[0]["logs"] == ["hi"]
+    assert applied[1]["logs"] == ["bye"] and all(e["ms"] >= 0 for e in applied)
     proxied = [e for e in env if e["kind"] == "request.proxied"]
     assert proxied[-1] == {"kind": "request.proxied", "user": "gerente", "method": "GET", "path": "/api/invoices",
                            "status": 200, "ms": proxied[-1]["ms"], "hooks": ["a_count", "b_wrap"]}
@@ -78,8 +98,8 @@ def test_hook_applies_only_to_its_user(tmp_path, env):
     assert env[-1]["user"] is None
 
 
-def test_failing_hook_fails_closed(tmp_path, env):
-    write(tmp_path, "gerente", "boom", hook("GET /api/patients", 'return 1 / 0'))
+def test_failing_hook_fails_closed(env):
+    write("gerente", "boom", hook("GET /api/patients", 'return 1 / 0'))
     r = client("gerente").get("/api/patients")
     assert r.status_code == 502
     assert r.json() == {"error": "hook_failed", "hook": "boom", "detail": "ZeroDivisionError: division by zero"}
@@ -95,20 +115,21 @@ def test_widget_injected_once_for_signed_in_html():
     assert tag not in client().get("/").text
 
 
-def test_virtual_endpoints(tmp_path, monkeypatch):
+def test_virtual_endpoints(monkeypatch):
     assert client().get("/x/report").status_code == 401
     assert client("gerente").get("/x/report").json() == {"error": "not_found"}
-    write(tmp_path, "gerente", "report", hook("GET /x/report", 'return {"n": len(ctx.api.get("/api/invoices"))}'))
+    write("gerente", "report", hook("GET /x/report", 'return {"n": len(ctx.api.get("/api/invoices"))}'))
     c = client("gerente")
     monkeypatch.setattr(main.httpx, "request", None)  # nothing may be forwarded
     r = c.get("/x/report")
     assert r.status_code == 200 and r.json()["n"] > 0 and r.headers["x-fitit-hooks"] == "report"
 
 
-def test_hook_management(tmp_path, env):
-    for method, path in [("GET", "/fitit/hooks"), ("POST", "/fitit/hooks/a/toggle"), ("DELETE", "/fitit/hooks/a")]:
+def test_hook_management(env):
+    for method, path in [("GET", "/fitit/hooks"), ("POST", "/fitit/hooks/a/toggle"), ("DELETE", "/fitit/hooks/a"),
+                         ("POST", "/fitit/hooks/a/undo")]:
         assert client().request(method, path).status_code == 401
-    write(tmp_path, "gerente", "a", hook("GET /api/invoices", "return 1"))
+    write("gerente", "a", hook("GET /api/invoices", "return 1"))
     c = client("gerente")
     assert c.get("/fitit/hooks").json()[0] | {"code": ""} == {"name": "a", "route": "GET /api/invoices",
                                                               "enabled": True, "code": ""}
@@ -120,6 +141,21 @@ def test_hook_management(tmp_path, env):
     assert c.get("/fitit/hooks").json() == []
     kinds = [(e["kind"], e.get("enabled")) for e in env if e["kind"].startswith("hook.")]
     assert kinds == [("hook.toggled", False), ("hook.deleted", None)]
+
+
+def test_undo_route(env):
+    c = client("gerente")
+    assert c.post("/fitit/hooks/a/undo").json() == {"error": "not_found"}
+    write("gerente", "a", hook("GET /api/invoices", "return 1"))
+    r = c.post("/fitit/hooks/a/undo")
+    assert r.status_code == 409 and r.json() == {"error": "undo_failed", "detail": "no earlier version"}
+    write("gerente", "a", hook("GET /api/invoices", "return 2"))
+    assert c.get("/api/invoices").json() == 2
+    r = c.post("/fitit/hooks/a/undo")
+    assert r.status_code == 200 and r.json()["version"] == 1 and "+    return 1" in r.json()["diff"]
+    assert c.get("/api/invoices").json() == 1
+    assert [e for e in env if e["kind"] == "hook.restored"] == [
+        {"kind": "hook.restored", "user": "gerente", "hook": "a", "version": 1}]
 
 
 def test_embed_js_and_core_namespace():

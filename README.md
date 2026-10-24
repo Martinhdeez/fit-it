@@ -7,7 +7,7 @@ Fit-it is a reverse proxy that sits in front of any existing web app. Users desc
 ## How it works
 
 1. The browser talks only to the Fit-it core, never directly to the client app.
-2. The core loads the user's hooks from `/workspaces/{user_id}/`.
+2. The core loads the user's hooks from its own Postgres (`hooks` table, every saved version kept in `hook_versions`).
 3. The request is forwarded to the original app.
 4. The app returns its normal HTML or JSON.
 5. The hook runner mutates the JSON with the user's hooks, or injects the `embed.js` chat widget into the HTML.

@@ -2,7 +2,9 @@ import json
 import os
 import re
 import urllib.request
+import uuid
 
+import psycopg
 import pytest
 from fastapi import FastAPI, WebSocket
 from fastapi.testclient import TestClient
@@ -10,6 +12,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
 import agent
+import db
 import hooks
 import trace
 
@@ -40,8 +43,21 @@ def scripted(*steps):
 
 
 @pytest.fixture(autouse=True)
-def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("WORKSPACES", str(tmp_path))
+def database(monkeypatch):
+    base = os.environ["DATABASE_URL"]
+    schema = f"t_{uuid.uuid4().hex}"
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"CREATE SCHEMA {schema}")
+    url = f"{base}?options=-csearch_path%3D{schema}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db.init()
+    yield url
+    with psycopg.connect(base, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture(autouse=True)
+def env(database, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     events = []
     monkeypatch.setattr(trace, "emit", lambda kind, **f: events.append((kind, f)))
@@ -99,25 +115,25 @@ def test_tool_results_reach_the_model():
     assert seen[2].content == "saved, dry-run output: [2, 4, 6]"
 
 
-def test_guard_rejection_is_a_retry_then_fix(tmp_path):
+def test_guard_rejection_is_a_retry_then_fix():
     [turn] = chat(scripted(("write_hook", {"name": "h", "code": BAD}), ("write_hook", {"name": "h", "code": GOOD}),
                            "ok"), "go")
     assert [e["type"] for e in turn] == ["tool", "hook_rejected", "tool", "hook_saved", "text", "done"]
     assert turn[1]["reason"].startswith("line 1:")
 
 
-def test_dry_run_failure_saves_nothing(tmp_path):
+def test_dry_run_failure_saves_nothing():
     [turn] = chat(scripted(("write_hook", {"name": "h", "code": CRASH}), "gave up"), "go")
     assert [e["type"] for e in turn] == ["tool", "hook_rejected", "text", "done"]
     assert "KeyError" in turn[1]["reason"] or "TypeError" in turn[1]["reason"]
-    assert hooks.list_hooks("alice") == [] and list(tmp_path.iterdir()) == []
+    assert hooks.list_hooks("alice") == []
 
 
-def test_three_rejections_end_the_turn(tmp_path):
+def test_three_rejections_end_the_turn():
     calls = [("write_hook", {"name": "h", "code": c}) for c in (BAD, CRASH, BAD)]
     turn, second = chat(scripted(*calls, "after"), "go", "again")
     assert [e["type"] for e in turn] == ["tool", "hook_rejected"] * 3 + ["error", "done"]
-    assert list(tmp_path.iterdir()) == []
+    assert hooks.list_hooks("alice") == []
     assert second == [{"type": "text", "text": "after"}, {"type": "done"}]  # connection survives, counter resets
 
 
