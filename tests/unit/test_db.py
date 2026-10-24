@@ -69,6 +69,7 @@ def test_init_creates_the_storage_schema(database):
         ("hook_versions", "saved_at", tz, "NO"),
         ("messages", "id", "bigint", "NO"), ("messages", "user_id", "text", "NO"),
         ("messages", "turn", "jsonb", "NO"), ("messages", "created_at", tz, "NO"),
+        ("messages", "conversation_id", "text", "NO"),
     }
     assert primary_keys(database) == {
         "hooks": ["user_id", "name"],

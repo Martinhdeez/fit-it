@@ -1,6 +1,8 @@
+import asyncio
 import json
 import os
 import re
+import threading
 import urllib.request
 import uuid
 
@@ -429,3 +431,94 @@ def test_instructions_name_marketplace_tools():
     chat(FunctionModel(fn), "hi")
     assert "no subscriptions" in seen[0]
     assert all(t in seen[0] for t in ("search_features", "subscribe_feature", "publish_hook"))
+
+
+def receive_turn(ws):
+    turn = []
+    while not turn or turn[-1]["type"] != "done":
+        turn.append(ws.receive_json())
+    return turn
+
+
+def test_one_turn_at_a_time_per_conversation(env, database, monkeypatch):
+    monkeypatch.setenv("FITIT_AGENT_MESSAGES_PER_HOUR", "4")
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    async def fn(messages, info):
+        text = messages[-1].parts[-1].content
+        calls.append(text)
+        if text == "hold":
+            started.set()
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+        return ModelResponse(parts=[TextPart(f"re {text}")])
+
+    app = FastAPI()
+
+    @app.websocket("/ws/{user}/{conversation}")
+    async def ws(websocket: WebSocket, user: str, conversation: str):
+        await agent.handle_ws(websocket, user, Api(), conversation)
+
+    with agent.agent.override(model=FunctionModel(fn)), TestClient(app) as c, \
+            c.websocket_connect("/ws/alice/a") as a1, c.websocket_connect("/ws/alice/a") as a2, \
+            c.websocket_connect("/ws/alice/b") as b, c.websocket_connect("/ws/bob/a") as bob:
+        a1.send_json({"type": "message", "text": "hold"})
+        assert started.wait(5)
+        a2.send_json({"type": "message", "text": "same"})
+        busy = receive_turn(a2)
+        assert busy[0]["type"] == "error" and "busy" in busy[0]["message"] and busy[1:] == [{"type": "done"}]
+        for other in (b, bob):
+            other.send_json({"type": "message", "text": "other"})
+            assert [e["type"] for e in receive_turn(other)] == ["text", "done"]
+        release.set()
+        assert receive_turn(a1)[-2]["text"] == "re hold"
+        a2.send_json({"type": "message", "text": "now"})  # busy did not count: alice's 3rd counted message
+        assert receive_turn(a2)[-2]["text"] == "re now"
+        b.send_json({"type": "message", "text": "over"})  # 4th counted, the limit is per user across conversations
+        receive_turn(b)
+        a2.send_json({"type": "message", "text": "over"})
+        assert "rate limit" in receive_turn(a2)[0]["message"]
+    assert calls == ["hold", "other", "other", "now", "over"]
+    with psycopg.connect(database) as conn:
+        assert conn.execute("SELECT user_id, conversation_id FROM messages ORDER BY id").fetchall() == [
+            ("alice", "b"), ("bob", "a"), ("alice", "a"), ("alice", "a"), ("alice", "b")]
+    busy_events = [f for k, f in env if k == "agent.message" and f["text"] == "same"]
+    assert busy_events == [{"user": "alice", "text": "same", "conversation": "a"}]
+
+
+def test_agent_events_carry_the_conversation(env):
+    app = FastAPI()
+
+    @app.websocket("/ws")
+    async def ws(websocket: WebSocket):
+        await agent.handle_ws(websocket, "alice", Api(), "c1")
+
+    with agent.agent.override(model=scripted(("list_hooks", {}), "ok")), TestClient(app).websocket_connect("/ws") as w:
+        w.send_json({"type": "message", "text": "hi"})
+        receive_turn(w)
+    chat(scripted("ok"), "hi")
+    got = [(k, f["conversation"]) for k, f in env if k.startswith("agent.")]
+    assert got == [("agent.message", "c1"), ("agent.tool", "c1"), ("agent.answer", "c1"),
+                   ("agent.message", "default"), ("agent.answer", "default")]
+
+
+def test_conversation_routes(monkeypatch, database):
+    import main
+    monkeypatch.setenv("BASE_URL", os.environ.get("DEMO_URL", "http://demo:8001"))
+    c = TestClient(main.app, follow_redirects=False)
+    assert c.get("/fitit/conversations").status_code == 401
+    assert c.delete("/fitit/history?conversation=a").status_code == 401
+    c.get("/login", params={"user": "gerente"})
+    user = c.get("/api/me").json()["id"]
+    assert c.get("/fitit/conversations").json() == []
+    for u, cid in ((user, "a"), (user, "b"), ("other", "a")):
+        with psycopg.connect(database) as conn:
+            conn.execute("INSERT INTO messages (user_id, turn, conversation_id) VALUES (%s, '[]', %s)", (u, cid))
+    assert [x["id"] for x in c.get("/fitit/conversations").json()] == ["b", "a"]
+    for bad in ("", "a%20b", "x" * 65):
+        r = c.delete(f"/fitit/history?conversation={bad}")
+        assert r.status_code == 422 and r.json()["error"] == "invalid"
+    assert c.delete("/fitit/history?conversation=a").status_code == 204
+    with psycopg.connect(database) as conn:
+        assert sorted(conn.execute("SELECT user_id, conversation_id FROM messages").fetchall()) == sorted([
+            ("other", "a"), (user, "b")])

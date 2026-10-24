@@ -46,12 +46,12 @@ def texts(messages):
     return [p.content for m in messages for p in m.parts if isinstance(p, (UserPromptPart, TextPart))]
 
 
-def chat(model, user, *messages, between=None):
+def chat(model, user, *messages, between=None, conversation="default"):
     app = FastAPI()
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
-        await agent.handle_ws(websocket, user, None)
+        await agent.handle_ws(websocket, user, None, conversation)
 
     turns = []
     with agent.agent.override(model=model), TestClient(app).websocket_connect("/ws") as ws:
@@ -71,12 +71,12 @@ def rows(url, user):
         return [t for (t,) in conn.execute("SELECT turn FROM messages WHERE user_id = %s ORDER BY id", (user,))]
 
 
-def seed(url, user, n):
+def seed(url, user, n, conversation="default", prefix="q"):
     with psycopg.connect(url) as conn:
         for i in range(n):
-            turn = [ModelRequest(parts=[UserPromptPart(f"q{i}")]), ModelResponse(parts=[TextPart(f"a{i}")])]
-            conn.execute("INSERT INTO messages (user_id, turn) VALUES (%s, %s)",
-                         (user, Jsonb(ModelMessagesTypeAdapter.dump_python(turn, mode="json"))))
+            turn = [ModelRequest(parts=[UserPromptPart(f"{prefix}{i}")]), ModelResponse(parts=[TextPart(f"a{i}")])]
+            conn.execute("INSERT INTO messages (user_id, turn, conversation_id) VALUES (%s, %s, %s)",
+                         (user, Jsonb(ModelMessagesTypeAdapter.dump_python(turn, mode="json")), conversation))
 
 
 def test_completed_turn_is_one_row_without_the_prompt(database):
@@ -123,3 +123,52 @@ def test_clear_history_only_touches_that_user(database):
     seed(database, "bob", 1)
     agent.clear_history("alice")
     assert rows(database, "alice") == [] and len(rows(database, "bob")) == 1
+
+
+def test_history_is_per_conversation(database):
+    seed(database, "alice", 25, "a", prefix="a")
+    seed(database, "alice", 1, "b", prefix="b")
+    seed(database, "bob", 1, "a", prefix="bob")
+    seen = []
+    chat(recording(seen), "alice", "now", conversation="a")
+    assert texts(seen[0]) == [x for i in range(5, 25) for x in (f"a{i}", f"a{i}")] + ["now"]
+    with psycopg.connect(database) as conn:
+        assert conn.execute("SELECT conversation_id FROM messages ORDER BY id DESC LIMIT 1").fetchone() == ("a",)
+    seen = []
+    chat(recording(seen), "alice", "plain")  # no conversation: default, empty
+    assert texts(seen[0]) == ["plain"]
+
+
+def test_clear_history_of_one_conversation(database):
+    seed(database, "alice", 1, "a")
+    seed(database, "alice", 1, "b")
+    seed(database, "bob", 1, "a")
+    agent.clear_history("alice", "a")
+    with psycopg.connect(database) as conn:
+        assert sorted(conn.execute("SELECT user_id, conversation_id FROM messages").fetchall()) == [
+            ("alice", "b"), ("bob", "a")]
+
+
+def test_list_conversations(database):
+    assert agent.list_conversations("alice") == []
+    chat(recording([]), "alice", "x" * 70, "second", conversation="a")
+    chat(recording([]), "alice", "hi b", conversation="b")
+    chat(recording([], fail=True), "alice", "failed", conversation="c")
+    chat(recording([]), "bob", "bob's", conversation="a")
+    got = agent.list_conversations("alice")
+    assert [(c["id"], c["title"], c["turns"]) for c in got] == [("b", "hi b", 1), ("a", "x" * 60, 2)]
+    assert all(set(c) == {"id", "title", "last_activity", "turns"} for c in got)
+    assert got[0]["last_activity"] > got[1]["last_activity"] and "T" in got[0]["last_activity"]
+
+
+def test_v2_messages_table_gains_the_column(database):
+    with psycopg.connect(database) as conn:
+        conn.execute("DROP TABLE messages")
+        conn.execute("CREATE TABLE messages (id bigserial PRIMARY KEY, user_id text NOT NULL, turn jsonb NOT NULL,"
+                     " created_at timestamptz NOT NULL DEFAULT now())")
+        conn.execute("INSERT INTO messages (user_id, turn) VALUES ('alice', '[]'), ('bob', '[]')")
+    db.init()
+    db.init()
+    with psycopg.connect(database) as conn:
+        assert conn.execute("SELECT user_id, conversation_id FROM messages ORDER BY id").fetchall() == [
+            ("alice", "default"), ("bob", "default")]
