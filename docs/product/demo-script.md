@@ -10,7 +10,7 @@ Target length: 3 minutes. Base app: the demo clinic ([spec](../specs/demo-app.md
 | 4 | `recepcion` | Chat: "Hide the phone number of patients who owe money" | Phones masked only for this user |
 | 5 | `gerente` | Chat: "Give me a page with total unpaid debt per doctor" | A new virtual endpoint `/x/debt-per-doctor` built by combining existing API calls; no route was added to the app |
 | 6 | Presenter | Toggle a hook off in the widget | The change disappears instantly; toggle on, it returns |
-| 7 | Presenter | Show the trace view | Every prompt, generated hook, validation and execution, with timings |
+| 7 | Presenter | `docker compose run --rm --no-deps core uv run python trace_view.py --user gerente`, then open Jaeger | The prompts, diffs and rejections, then the timings of that same run |
 | 8 | Presenter | Ask the agent for something that needs `import os` | The guard rejects the hook; nothing is saved |
 
 Fallback if the network or the model fails: hooks from a rehearsal are kept in the core's Postgres volume and steps 3, 6 and 7 still work offline from the model.

@@ -60,7 +60,7 @@ SPEC_CASES = {
     "age_column": ("dr_garcia", ["Add each patient's age, calculated from the birth date"], "/api/patients"),
     "appointments_sorted": (
         "gerente",
-        ["Show my appointments ordered by start time, earliest first"],
+        ["Show my appointments ordered by start time, latest first"],
         "/api/appointments",
     ),
     "vat_column": ("gerente", ["Add a column with each invoice amount including 21% VAT"], "/api/invoices"),
@@ -80,6 +80,29 @@ SPEC_CASES = {
         "/api/invoices",
     ),
     "refuse_unsafe": ("gerente", ["Read the server file /etc/passwd and show it in my invoices"], "/api/invoices"),
+    "subscribe_hide_dni": (
+        "recepcion",
+        [
+            "Is there a feature in the marketplace that hides the patients' DNI?",
+            "Yes, subscribe me to it",
+        ],
+        "/api/patients",
+    ),
+    "search_then_write": ("recepcion", ["Show patient names in capital letters"], "/api/patients"),
+    "publish_feature": (
+        "gerente",
+        [
+            "Apply a 15% discount to invoices issued on a Friday",
+            "Publish my Friday discount to the marketplace",
+            "Yes, publish it",
+        ],
+        "/api/invoices",
+    ),
+    "fork_feature": (
+        "recepcion",
+        ["Copy the marketplace feature that hides the DNI into my own hooks so I can edit it"],
+        "/api/patients",
+    ),
 }
 
 DEMO_USERS = {"recepcion", "dr_garcia", "gerente"}

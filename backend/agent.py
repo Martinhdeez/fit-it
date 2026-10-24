@@ -1,4 +1,4 @@
-"""Coding agent: turns a chat message into a validated hook. Spec: docs/specs/agent.md."""
+"""Coding agent: turns a chat message into a validated hook, or finds a published one. Spec: docs/specs/agent.md."""
 import json
 import os
 import time
@@ -12,6 +12,7 @@ from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 import db
 import hooks
+import marketplace
 import trace
 
 MAX_REJECTIONS = 3
@@ -28,6 +29,15 @@ How to work:
 - write_hook validates and dry-runs the code. If it is rejected, read the reason, fix the code and call it again.
 - When the user asks to undo or go back, call undo_hook with the hook's name.
 - Answer in the user's language, in at most three sentences.
+
+Marketplace. Other users of the app publish their hooks as features (named @<id>) that this user can subscribe to.
+- Before writing a new hook, call search_features. If a feature does what the user asked, describe it and ask whether
+  to subscribe. Call subscribe_feature only after the user agrees in a later message.
+- To publish a hook, read_hook it, draft a short title and description from its code, show them to the user, and call
+  publish_hook only after the user confirms in a later message. unpublish_feature hides it again.
+- Only the owner can change a feature. A subscriber who wants it changed can fork_feature it into their own hook and
+  then edit that copy. unsubscribe_feature removes a subscription.
+- When a subscriber asks for the new version of a feature, call accept_update.
 
 Hook contract. A hook is one Python file with exactly this shape:
 
@@ -67,6 +77,7 @@ class Deps:
     events: list = field(default_factory=list)  # hook_saved / hook_rejected, flushed after each tool result
     rejections: int = 0
     hooks: str = ""  # the user's hooks when the message started, for the instructions
+    subscriptions: str = ""  # likewise, the user's subscriptions
 
 
 # ponytail: in memory, per process; Postgres-backed if the core scales out (plan 02, Next)
@@ -104,6 +115,20 @@ def current_hooks(ctx: RunContext[Deps]) -> str:
     if not ctx.deps.hooks:  # read once, at the message's first model request
         ctx.deps.hooks = hooks_summary(ctx.deps.user)
     return "The user's current hooks (name: route):\n" + ctx.deps.hooks
+
+
+def subscriptions_summary(user: str) -> str:
+    return "\n".join(
+        f"- @{s['feature_id']} {s['title']}: {s['route']} (v{s['version']}, {'enabled' if s['enabled'] else 'disabled'}"
+        f"{', update available' if s['update_available'] else ''})"
+        for s in marketplace.subscriptions(user)) or "no subscriptions"
+
+
+@agent.instructions
+def current_subscriptions(ctx: RunContext[Deps]) -> str:
+    if not ctx.deps.subscriptions:
+        ctx.deps.subscriptions = subscriptions_summary(ctx.deps.user)
+    return "The user's subscriptions (@id title: route):\n" + ctx.deps.subscriptions
 
 
 def model_name() -> str:
@@ -227,6 +252,93 @@ def write_hook(ctx: RunContext[Deps], name: str, code: str) -> str:
     if preview is None:
         return "saved (no dry run for this route)"
     return "saved, dry-run output: " + json.dumps(preview, ensure_ascii=False)[:2000]
+
+
+def changed(deps: Deps, feature_id: int, action: str) -> None:
+    deps.events.append({"type": "feature_changed", "feature_id": feature_id, "action": action})
+
+
+# Marketplace tools: the rules and feature.* trace events live in marketplace.py. A marketplace.Error is returned as
+# text, not raised as ModelRetry, so the model can explain it (agent spec, "Marketplace tools").
+@agent.tool
+def search_features(ctx: RunContext[Deps], query: str) -> str:
+    """Search published features by words in their title or description; an empty query lists the most used."""
+    try:
+        found = marketplace.search(ctx.deps.user, query)[:10]
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    return "\n".join(
+        f"@{f['id']} {f['title']} — {f['route']} — {f['description']} ({f['subscribers']} subscribers, v{f['version']})"
+        + (" [mine]" if f["mine"] else "") + (" [subscribed]" if f["subscribed"] else "")
+        for f in found) or "no features found"
+
+
+@agent.tool
+def publish_hook(ctx: RunContext[Deps], name: str, title: str, description: str) -> str:
+    """Publish one of the user's hooks as a feature. Only after the user confirmed the title and description."""
+    try:
+        f = marketplace.publish(ctx.deps.user, name, title, description)
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    changed(ctx.deps, f["id"], "published")
+    return f"published @{f['id']} version {f['version']}"
+
+
+@agent.tool
+def unpublish_feature(ctx: RunContext[Deps], feature_id: int) -> str:
+    """Hide one of the user's own features from the marketplace; existing subscribers keep it."""
+    try:
+        marketplace.unpublish(ctx.deps.user, feature_id)
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    changed(ctx.deps, feature_id, "unpublished")
+    return f"unpublished @{feature_id}"
+
+
+@agent.tool
+def subscribe_feature(ctx: RunContext[Deps], feature_id: int) -> str:
+    """Subscribe the user to a feature, after a dry run on their data. Only after the user agreed."""
+    try:
+        s = marketplace.subscribe(ctx.deps.user, feature_id, ctx.deps.api)
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    changed(ctx.deps, feature_id, "subscribed")
+    return f"subscribed to @{feature_id} version {s['version']}"
+
+
+@agent.tool
+def unsubscribe_feature(ctx: RunContext[Deps], feature_id: int) -> str:
+    """Remove the user's subscription to a feature."""
+    try:
+        marketplace.unsubscribe(ctx.deps.user, feature_id)
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    changed(ctx.deps, feature_id, "unsubscribed")
+    return f"unsubscribed from @{feature_id}"
+
+
+@agent.tool
+def accept_update(ctx: RunContext[Deps], feature_id: int) -> str:
+    """Move the user's subscription to the feature's latest version, after a dry run."""
+    try:
+        s = marketplace.accept_update(ctx.deps.user, feature_id, ctx.deps.api)
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    changed(ctx.deps, feature_id, "updated")
+    return f"@{feature_id} updated to version {s['version']}"
+
+
+@agent.tool
+def fork_feature(ctx: RunContext[Deps], feature_id: int, name: str) -> str:
+    """Copy a feature's code into a new hook of the user named `name`, ending any subscription to it."""
+    deps = ctx.deps
+    try:
+        h = marketplace.fork(deps.user, feature_id, deps.api, name)
+    except marketplace.Error as e:
+        return f"{e.error}: {e}"
+    deps.events.append({"type": "hook_saved", "name": h["name"], "route": h["route"], "diff": h["diff"]})
+    changed(deps, feature_id, "forked")
+    return f"forked @{feature_id} into {h['name']}"
 
 
 async def handle_ws(websocket, user: str, api) -> None:

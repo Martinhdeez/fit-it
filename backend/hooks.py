@@ -170,6 +170,9 @@ def delete_hook(user: str, name: str) -> None:
     if _valid(user, name):
         with db.connect() as conn:
             if conn.execute("DELETE FROM hooks WHERE user_id = %s AND name = %s", (user, name)).rowcount:
+                # the marketplace feature published from this hook is hidden, subscribers keep it (marketplace rule 3)
+                conn.execute("UPDATE features SET published = false WHERE owner_id = %s AND hook_name = %s",
+                             (user, name))
                 return
     raise KeyError(name)
 
@@ -216,22 +219,21 @@ def _run(hook: str | None, code: str, data, ctx):
     return data
 
 
-def run_hooks(user: str, method: str, path: str, data, ctx):
+def run_hooks(user: str, method: str, path: str, data, ctx, features=()):
+    """Subscribed `features` ({"name": "@<id>", "code"}) run first, then the user's own enabled hooks."""
     applied = []
-    for hook in list_hooks(user):
-        if not hook["enabled"]:
-            continue
+    for hook in [*features, *(h for h in list_hooks(user) if h["enabled"])]:
         name = hook["name"]
         try:
             route_method, route_path = check_code(hook["code"])
         except ValueError as e:
-            raise HookError(name, str(e))  # a stored hook that no longer passes the guard fails closed
+            raise HookError(name, str(e))  # stored code that no longer passes the guard fails closed
         if route_method != method.upper() or not _matches(route_path, path):
             continue
         logged, start = len(ctx.logs), time.perf_counter()
         data = _run(name, hook["code"], data, ctx)
-        applied.append({"name": name, "route": hook["route"], "ms": round((time.perf_counter() - start) * 1000, 3),
-                        "logs": ctx.logs[logged:]})
+        applied.append({"name": name, "route": f"{route_method} {route_path}",
+                        "ms": round((time.perf_counter() - start) * 1000, 3), "logs": ctx.logs[logged:]})
     return data, applied
 
 

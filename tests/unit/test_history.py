@@ -23,6 +23,8 @@ def database(monkeypatch):
         conn.execute(f"CREATE SCHEMA {schema}")
     url = f"{base}?options=-csearch_path%3D{schema}"
     monkeypatch.setenv("DATABASE_URL", url)
+    monkeypatch.setenv("FITIT_AGENT_MESSAGES_PER_HOUR", "100000")
+    agent.reset_rate_limits()
     monkeypatch.setattr(trace, "emit", lambda kind, **f: None)
     db.init()
     yield url

@@ -1,4 +1,5 @@
 import os
+import re
 
 import httpx
 import psycopg
@@ -7,6 +8,7 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
 import agent
+import hooks
 import trace
 import cases
 import run_evals
@@ -22,7 +24,7 @@ def run(data, ctx):
 '''
 SPEC_IDS = {"friday_discount", "mask_phone_debtors", "debt_per_doctor", "sort_by_amount", "unpaid_only", "hide_dni",
             "age_column", "appointments_sorted", "vat_column", "uppercase_names", "edit_existing", "undo_change",
-            "refuse_unsafe"}
+            "refuse_unsafe", "subscribe_hide_dni", "search_then_write", "publish_feature", "fork_feature"}
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +46,7 @@ def eval_schemas():
 def run(fn, id="friday_discount"):
     url, emit = os.environ["DATABASE_URL"], trace.emit
     with agent.agent.override(model=FunctionModel(fn)):
-        result = run_evals.run_case(case(id))
+        result = run_evals.run_case(case(id) if isinstance(id, str) else id)
     assert os.environ["DATABASE_URL"] == url and trace.emit is emit and not eval_schemas()
     return result
 
@@ -58,7 +60,9 @@ def hook_then_text(messages, info):
 
 def test_cases_shape():
     ids = [c["id"] for c in run_evals.CASES]
-    assert 10 <= len(ids) <= 20 and len(set(ids)) == len(ids) and SPEC_IDS <= set(ids)
+    assert len(ids) == 17 and len(set(ids)) == len(ids) and SPEC_IDS <= set(ids)
+    assert [c["id"] for c in run_evals.CASES if "setup" in c] == ["subscribe_hide_dni", "search_then_write",
+                                                                  "fork_feature"]
     for c in run_evals.CASES:
         assert c["user"] in {"recepcion", "dr_garcia", "gerente"} and c["turns"] and callable(c["check"])
         assert c["route"].startswith(("/api/", "/x/"))
@@ -72,7 +76,7 @@ def test_checks_reject_unchanged_data():
         demo.get("/login", params={"user": c["user"]})
         get = lambda path: demo.get(path).json() if not path.startswith("/fitit/") else []
         before = get(c["route"])
-        if c["id"] in ("refuse_unsafe", "appointments_sorted"):  # the demo already sorts appointments by start
+        if c["id"] == "refuse_unsafe":
             c["check"](before, before, get=get)
         else:
             with pytest.raises(AssertionError):
@@ -112,3 +116,45 @@ def test_main_runs_selected_cases(monkeypatch, capsys):
 def test_main_rejects_unknown_ids(monkeypatch, capsys):
     monkeypatch.setenv("EVAL_CASES", "nope")
     assert run_evals.main() == 1 and "nope" in capsys.readouterr().out
+
+
+def test_setup_runs_in_the_case_schema_before_the_request():
+    def setup():
+        hooks.save_hook("gerente", "friday", FRIDAY_HOOK)
+    seen = []
+    c = {**case("friday_discount"), "setup": setup, "check": lambda before, after, get: seen.append(before)}
+    r = run(lambda messages, info: ModelResponse(parts=[TextPart("ok")]), c)
+    assert r["passed"], r["detail"]
+    fridays = [i for i in seen[0] if cases.is_friday(i["date"])]
+    assert fridays
+    demo = httpx.Client(base_url=os.environ["BASE_URL"])
+    demo.get("/login", params={"user": "gerente"})
+    raw = {i["id"]: i["amount"] for i in demo.get("/api/invoices").json()}
+    assert all(cases.near(i["amount"], round(raw[i["id"]] * 0.85, 2)) for i in fridays)
+
+
+def test_raising_setup_fails_the_case_and_drops_the_schema():
+    def setup():
+        raise RuntimeError("seed broke")
+    r = run(lambda messages, info: ModelResponse(parts=[TextPart("ok")]), {**case("friday_discount"), "setup": setup})
+    assert not r["passed"] and r["detail"].startswith("setup:") and "seed broke" in r["detail"]
+
+
+def search_then_subscribe(messages, info):
+    last = messages[-1].parts[-1]
+    if getattr(last, "tool_name", None) or last.part_kind != "user-prompt":
+        return ModelResponse(parts=[TextPart("done")])
+    if "subscribe" not in last.content:
+        return ModelResponse(parts=[ToolCallPart("search_features", {"query": "DNI"})])
+    found = re.search(r"@(\d+)", str(messages))
+    return ModelResponse(parts=[ToolCallPart("subscribe_feature", {"feature_id": int(found.group(1))})])
+
+
+def test_subscribe_hide_dni_passes_with_search_then_subscribe():
+    r = run(search_then_subscribe, "subscribe_hide_dni")
+    assert r["passed"], r["detail"]
+
+
+def test_subscribe_hide_dni_fails_with_text_only():
+    r = run(lambda messages, info: ModelResponse(parts=[TextPart("sure")]), "subscribe_hide_dni")
+    assert not r["passed"] and r["detail"].startswith("check:")

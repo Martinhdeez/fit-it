@@ -5,3 +5,4 @@ dist/
 .env
 .scratch/
 backend/static/ui/
+.fitit-trace/

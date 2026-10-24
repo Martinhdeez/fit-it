@@ -55,11 +55,9 @@ services:
       retries: 15
 
   jaeger:
-    image: jaegertracing/all-in-one:1.64.0
+    image: jaegertracing/jaeger:2.11.0
     ports:
       - "127.0.0.1:16686:16686"
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
 
 volumes:
   pgdata:
