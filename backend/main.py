@@ -235,6 +235,17 @@ def list_conversations(request: Request):
     return list_conversations(user)
 
 
+@app.get("/fitit/conversations/{conversation}/messages")
+def conversation_messages(conversation: str, request: Request):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    if not valid_conversation(conversation):
+        return JSONResponse({"error": "invalid", "detail": "conversation must match [A-Za-z0-9_-]{1,64}"}, 422)
+    from agent import conversation_messages
+    return conversation_messages(user, conversation)
+
+
 @app.get("/fitit/features")
 def my_features(request: Request):
     user = resolve_user(request.headers.get("cookie", ""))
