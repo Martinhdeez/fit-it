@@ -19,7 +19,7 @@ A user works in several chat windows at once, each with its own conversation, wi
 | 5 | As a user, two windows saving the same hook never lose a save or crash. | REQ-HK1-1 … 4 |
 | 6 | As a user, the agent never overwrites a change it did not see; it re-reads and reapplies. | REQ-AG4-1 … 3 |
 | 7 | As a user, a new hook, or a subscription, that would break another of my hooks on the same route is refused, naming that hook. | REQ-HK1-5 … 8, REQ-AG4-4, REQ-AG4-5 |
-| 8 | As a user, the agent extends my existing hook on a route instead of piling up a second one. | REQ-AG4-6 |
+| 8 | As a user, the agent extends my existing hook on a route when my request changes what that hook does, and puts an unrelated change in a new hook on that route. | REQ-AG4-6 |
 | 9 | As a user, the widget shows a list of conversations and opens each in its own window. | WC1 (frontend teammate, no REQ) |
 
 ## Deliverables
