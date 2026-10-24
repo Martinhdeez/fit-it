@@ -1,184 +1,326 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { connect, type Hook, type ServerMessage, type Transport } from "../lib/transport";
+import {
+  deleteHook,
+  listHooks,
+  openSocket,
+  parseEvent,
+  reloadHostPage,
+  sendMessage,
+  SignedOut,
+  tellHost,
+  toggleHook,
+  UNAUTHENTICATED,
+  type AgentEvent,
+  type Hook,
+} from "../lib/core";
 
-type Phase = "offline" | "ready" | "busy";
+type Connection = "idle" | "connecting" | "open" | "lost" | "signed-out";
 
-type TranscriptItem =
+type Item =
   | { kind: "prompt"; text: string }
-  | { kind: "step"; text: string }
-  | { kind: "diff"; id: string; name: string; patch: string }
+  | { kind: "tool"; name: string }
+  | { kind: "saved"; name: string; route: string; diff: string }
+  | { kind: "rejected"; name: string; reason: string }
+  | { kind: "answer"; text: string }
   | { kind: "error"; message: string };
+
+const SIGN_IN = "Sign in to the app first";
+
+function diffLineClass(line: string): string | undefined {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "del";
+  return undefined;
+}
 
 export default function Page() {
   const [open, setOpen] = useState(false);
-  const [phase, setPhase] = useState<Phase>("offline");
+  const [connection, setConnection] = useState<Connection>("idle");
+  const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
-  const [items, setItems] = useState<TranscriptItem[]>([]);
+  const [items, setItems] = useState<Item[]>([]);
   const [hooks, setHooks] = useState<Hook[]>([]);
-  const transportRef = useRef<Transport | null>(null);
+  const [hooksError, setHooksError] = useState("");
+  const [pendingHook, setPendingHook] = useState("");
+  const socketRef = useRef<WebSocket | null>(null);
+  const savedThisTurn = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    const onMessage = (message: ServerMessage) => {
-      if (!active) return;
-      if (message.type === "ready") {
-        setPhase("ready");
-        return;
-      }
-      if (message.type === "hooks") {
-        setHooks(message.hooks);
-        return;
-      }
-      if (message.type === "step") {
-        setItems((current) => [...current, { kind: "step", text: message.text }]);
-        return;
-      }
-      if (message.type === "diff") {
-        setItems((current) => [
-          ...current,
-          { kind: "diff", id: message.id, name: message.name, patch: message.patch },
-        ]);
-        return;
-      }
-      setItems((current) => [...current, { kind: "error", message: message.message }]);
-    };
-
-    const transport = connect(onMessage, () => {
-      if (active) setPhase("offline");
-    });
-    transportRef.current = transport;
-
-    return () => {
-      active = false;
-      transport.close();
-      transportRef.current = null;
-    };
-  }, []);
+  useEffect(() => () => socketRef.current?.close(), []);
 
   useEffect(() => {
-    if (open) composerRef.current?.focus();
-  }, [open]);
+    if (open && connection === "open" && !busy) composerRef.current?.focus();
+  }, [open, connection, busy]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [items, hooks]);
+  }, [items]);
 
-  function sendPrompt() {
+  const add = (item: Item) => setItems((current) => [...current, item]);
+
+  async function loadHooks() {
+    try {
+      setHooks(await listHooks());
+      setHooksError("");
+    } catch (error) {
+      if (error instanceof SignedOut) setConnection("signed-out");
+      else setHooksError("Could not load your changes.");
+    }
+  }
+
+  function handle(event: AgentEvent) {
+    switch (event.type) {
+      case "tool":
+        add({ kind: "tool", name: event.name });
+        return;
+      case "hook_saved":
+        savedThisTurn.current = true;
+        add({ kind: "saved", name: event.name, route: event.route, diff: event.diff });
+        return;
+      case "hook_rejected":
+        add({ kind: "rejected", name: event.name, reason: event.reason });
+        return;
+      case "text":
+        add({ kind: "answer", text: event.text });
+        return;
+      case "error":
+        add({ kind: "error", message: event.message });
+        return;
+      case "done":
+        setBusy(false);
+        if (savedThisTurn.current) {
+          reloadHostPage();
+          return;
+        }
+        void loadHooks();
+    }
+  }
+
+  function connect() {
+    const current = socketRef.current;
+    if (current && current.readyState <= WebSocket.OPEN) return;
+
+    const socket = openSocket();
+    socketRef.current = socket;
+    setConnection("connecting");
+    socket.addEventListener("open", () => setConnection("open"));
+    socket.addEventListener("message", (message) => {
+      if (typeof message.data !== "string") return;
+      const event = parseEvent(message.data);
+      if (event) handle(event);
+    });
+    socket.addEventListener("close", (close) => {
+      if (socketRef.current === socket) socketRef.current = null;
+      setBusy(false);
+      setConnection(close.code === UNAUTHENTICATED ? "signed-out" : "lost");
+    });
+  }
+
+  function openPanel() {
+    tellHost("open");
+    setOpen(true);
+    void loadHooks();
+    if (connection !== "signed-out") connect();
+  }
+
+  function closePanel() {
+    setOpen(false);
+    tellHost("close");
+  }
+
+  function send() {
     const text = draft.trim();
-    if (!text || phase !== "ready") return;
-    setItems((current) => [...current, { kind: "prompt", text }]);
+    const socket = socketRef.current;
+    if (!text || busy || connection !== "open" || !socket) return;
+    savedThisTurn.current = false;
+    add({ kind: "prompt", text });
     setDraft("");
-    setPhase("busy");
-    transportRef.current?.send({ type: "prompt", text });
+    setBusy(true);
+    sendMessage(socket, text);
+  }
+
+  async function changeHook(name: string, action: (name: string) => Promise<void>) {
+    setPendingHook(name);
+    try {
+      await action(name);
+      reloadHostPage();
+    } catch (error) {
+      if (error instanceof SignedOut) setConnection("signed-out");
+      else setHooksError("That change did not go through. Try again.");
+      setPendingHook("");
+    }
   }
 
   if (!open) {
     return (
-      <main className="canvas">
-        <button type="button" className="launcher" aria-expanded={false} onClick={() => setOpen(true)}>
+      <main className="shell">
+        <button type="button" className="launcher" aria-expanded={false} onClick={openPanel}>
+          <span className="launcher-mark" aria-hidden="true" />
           Fit-it
         </button>
       </main>
     );
   }
 
-  const composerDisabled = phase !== "ready";
+  const signedOut = connection === "signed-out";
+  const locked = busy || connection !== "open";
+  const status = signedOut
+    ? SIGN_IN
+    : connection === "connecting"
+      ? "Connecting…"
+      : connection === "lost"
+        ? "Connection lost. Close and reopen Fit-it to retry."
+        : busy
+          ? "Working…"
+          : "";
 
   return (
-    <main className="canvas">
-      <section className="panel" aria-label="Fit-it">
+    <main className="shell">
+      <section
+        className="panel"
+        aria-label="Fit-it"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") closePanel();
+        }}
+      >
         <header className="panel-header">
-          <h1>Fit-it</h1>
-          <button type="button" onClick={() => setOpen(false)}>
-            Close
+          <div>
+            <h1>Fit-it</h1>
+            <p>Change this app for you, in plain words.</p>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close Fit-it" onClick={closePanel}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
           </button>
         </header>
+
         <div className="transcript" role="log" aria-live="polite" aria-relevant="additions">
-          {items.length === 0 ? <p className="empty">Describe a change to this app.</p> : null}
+          {items.length === 0 && !signedOut ? (
+            <p className="empty">Describe a change to this app. For example: 15% discount on Friday invoices.</p>
+          ) : null}
           {items.map((item, index) => {
-            if (item.kind === "prompt") {
-              return (
-                <p className="prompt" key={index}>
-                  {item.text}
-                </p>
-              );
+            switch (item.kind) {
+              case "prompt":
+                return (
+                  <p className="bubble user" key={index}>
+                    {item.text}
+                  </p>
+                );
+              case "tool":
+                return (
+                  <p className="tool" key={index}>
+                    → {item.name}
+                  </p>
+                );
+              case "saved":
+                return (
+                  <figure className="diff" key={index}>
+                    <figcaption>
+                      <span>{item.name}</span>
+                      <code>{item.route}</code>
+                    </figcaption>
+                    <pre>
+                      {item.diff.split("\n").map((line, lineIndex) => (
+                        <span className={diffLineClass(line)} key={lineIndex}>
+                          {line}
+                          {"\n"}
+                        </span>
+                      ))}
+                    </pre>
+                  </figure>
+                );
+              case "rejected":
+                return (
+                  <p className="error" key={index}>
+                    {item.name ? `${item.name}: ` : ""}
+                    {item.reason}
+                  </p>
+                );
+              case "answer":
+                return (
+                  <p className="bubble agent" key={index}>
+                    {item.text}
+                  </p>
+                );
+              case "error":
+                return (
+                  <p className="error" key={index}>
+                    {item.message}
+                  </p>
+                );
             }
-            if (item.kind === "step") {
-              return (
-                <p className="step" key={index}>
-                  {item.text}
-                </p>
-              );
-            }
-            if (item.kind === "error") {
-              return (
-                <p className="error" key={index}>
-                  {item.message}
-                </p>
-              );
-            }
-            return (
-              <article className="diff" key={index}>
-                <p>{item.name}</p>
-                <pre>{item.patch}</pre>
-              </article>
-            );
           })}
           <div ref={bottomRef} />
         </div>
-        {hooks.length > 0 ? (
-          <ul className="hooks">
-            {hooks.map((hook) => (
-              <li key={hook.id}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={hook.enabled}
-                    onChange={(event) => {
-                      transportRef.current?.send({
-                        type: "toggle",
-                        id: hook.id,
-                        enabled: event.target.checked,
-                      });
-                    }}
-                  />
-                  {hook.name}
-                </label>
-              </li>
-            ))}
-          </ul>
+
+        {!signedOut && (hooks.length > 0 || hooksError) ? (
+          <div className="hooks">
+            <h2>Your changes</h2>
+            {hooksError ? <p className="error">{hooksError}</p> : null}
+            <ul>
+              {hooks.map((hook) => (
+                <li key={hook.name}>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={hook.enabled}
+                      disabled={pendingHook !== ""}
+                      onChange={() => void changeHook(hook.name, toggleHook)}
+                    />
+                    <span className="hook-text">
+                      <span className="hook-name">{hook.name}</span>
+                      <code>{hook.route}</code>
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    className="delete"
+                    aria-label={`Delete ${hook.name}`}
+                    disabled={pendingHook !== ""}
+                    onClick={() => void changeHook(hook.name, deleteHook)}
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
+
         <p className="status" role="status">
-          {phase === "offline" ? "Connecting" : phase === "busy" ? "Working" : ""}
+          {status}
         </p>
+
         <form
           className="composer"
           onSubmit={(event) => {
             event.preventDefault();
-            sendPrompt();
+            send();
           }}
         >
           <textarea
             ref={composerRef}
             aria-label="Describe a change to this app"
-            rows={2}
+            placeholder="Describe a change…"
+            rows={1}
             value={draft}
-            disabled={composerDisabled}
+            disabled={locked}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                sendPrompt();
+                send();
               }
             }}
           />
-          <button type="submit" className="send" disabled={composerDisabled || draft.trim() === ""}>
-            {phase === "busy" ? "Sending" : "Send"}
+          <button type="submit" className="send" aria-label="Send" disabled={locked || draft.trim() === ""}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+            </svg>
           </button>
         </form>
       </section>
