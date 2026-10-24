@@ -23,3 +23,16 @@ Rules:
 | [0011](0011-git-flow-and-conventional-commits.md) | Git Flow and Conventional Commits | Accepted |
 | [0012](0012-trace-seam-for-observability.md) | A single trace seam for observability | Accepted |
 | [0013](0013-developer-and-tester-agents.md) | Developer, tester and reviewer agents | Accepted |
+| [0014](0014-provider-agnostic-model.md) | Provider-agnostic model through `FITIT_MODEL` | Accepted |
+| [0015](0015-widget-as-static-iframe.md) | Widget as a static Next.js export in a same-origin iframe | Accepted |
+| [0016](0016-resizable-panel-and-voice-input.md) | User-resizable widget panel and voice input | Proposed |
+| [0017](0017-postgres-as-core-storage.md) | PostgreSQL as the core's storage | Accepted |
+| [0018](0018-hook-versions-and-undo.md) | Hook versions and undo | Accepted |
+| [0019](0019-persistent-chat-history.md) | Persistent chat history per user | Accepted |
+| [0020](0020-hook-time-limit-and-safety-limits.md) | Hook time limit, output cap and agent rate limit | Accepted |
+| [0021](0021-real-model-evals-on-demand.md) | Real-model evaluation set, run on demand | Accepted |
+| [0022](0022-feature-marketplace.md) | Feature marketplace inside one app | Accepted |
+| [0023](0023-features-run-as-the-subscriber.md) | Subscribed features run as the subscriber | Accepted |
+| [0024](0024-parallel-conversations.md) | Parallel conversations per user | Accepted |
+| [0025](0025-hook-edits-under-parallel-conversations.md) | Hook edits under parallel conversations: serialized saves, expected version, chain dry run | Accepted |
+| [0026](0026-trace-journal-and-otel-export.md) | Trace journal and OpenTelemetry export | Proposed |

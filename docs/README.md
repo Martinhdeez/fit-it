@@ -20,7 +20,7 @@ Contribution rules (Git Flow, Conventional Commits, pull requests, agent rules) 
 2. [`architecture/overview.md`](architecture/overview.md)
 3. [`adr/README.md`](adr/README.md)
 4. The spec for the component you are touching, in [`specs/`](specs/)
-5. The current iteration: [`plan/01-mvp/00-plan.md`](plan/01-mvp/00-plan.md)
+5. The current iteration: [`plan/04-conversations/00-plan.md`](plan/04-conversations/00-plan.md) (previous: [`plan/03-marketplace/`](plan/03-marketplace/00-plan.md), [`plan/02-postgres/`](plan/02-postgres/00-plan.md), [`plan/01-mvp/`](plan/01-mvp/00-plan.md))
 
 ## Conventions
 

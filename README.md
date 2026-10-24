@@ -7,7 +7,7 @@ Fit-it is a reverse proxy that sits in front of any existing web app. Users desc
 ## How it works
 
 1. The browser talks only to the Fit-it core, never directly to the client app.
-2. The core loads the user's hooks from `/workspaces/{user_id}/`.
+2. The core loads the user's hooks from its own Postgres (`hooks` table, every saved version kept in `hook_versions`).
 3. The request is forwarded to the original app.
 4. The app returns its normal HTML or JSON.
 5. The hook runner mutates the JSON with the user's hooks, or injects the `embed.js` chat widget into the HTML.
@@ -23,8 +23,20 @@ Hackathon prototype (GDG Coruña, October 2026). `backend/` holds the first iter
 
 ```bash
 export ANTHROPIC_API_KEY=...                            # in your shell, never in a file
-docker compose up --build                               # API on :8000
-docker compose run --rm core uv run python check.py     # self-check
+docker compose up --build                               # API :8000, Jaeger http://127.0.0.1:16686
+make check                                              # Docker tests, no model calls
+```
+
+The audit journal and Jaeger view are in [docs/traceability.md](docs/traceability.md).
+
+### Choosing the model
+
+`FITIT_MODEL` takes any Pydantic AI `provider:model` string; export the key that provider reads ([ADR 0014](docs/adr/0014-provider-agnostic-model.md)).
+
+```bash
+export ANTHROPIC_API_KEY=...                                 # default: anthropic:claude-opus-5-5
+export FITIT_MODEL=openai:gpt-5 OPENAI_API_KEY=...           # OpenAI
+export FITIT_MODEL=ollama:qwen3 OLLAMA_BASE_URL=http://host.docker.internal:11434/v1   # local Ollama
 ```
 
 Contribution rules (Git Flow, Conventional Commits, PRs) are in `AGENTS.md`.

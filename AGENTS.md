@@ -24,7 +24,7 @@ Everything runs through Docker. Do not create virtualenvs or `.env` files as the
 ```bash
 export ANTHROPIC_API_KEY=...        # in your shell, never in a file
 docker compose up --build           # core on http://localhost:8000
-docker compose run --rm core uv run python check.py   # self-check (until OP1 adds `make check`)
+make check                         # tests in Docker (unit + acceptance)
 ```
 
 ## Secrets
@@ -77,7 +77,7 @@ docs: add architecture diagram for the API-only flow
 
 - Simplest working solution first. No abstractions, config or files "for later".
 - Reuse what is already in the repo before writing new code; standard library before new dependencies.
-- Non-trivial logic ships with a runnable check (`backend/check.py` style asserts).
+- Non-trivial logic ships with a runnable check (a unit test in `tests/unit/`).
 - Security is never simplified away: generated hooks always pass the AST guard, run fail-closed, and only reach the client app through its API with the user's own session.
 - Code, comments, commits and docs in English.
 

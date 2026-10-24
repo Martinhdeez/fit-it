@@ -1,8 +1,67 @@
 services:
   core:
-    build: ./backend
+    build:
+      context: ./backend
+      additional_contexts:
+        frontend: ./frontend
     ports:
       - "8000:8000"
     environment:
       # Passed through from the host shell; never written to a file in the repo.
+      # FITIT_MODEL picks the provider; set only the key that provider reads (docs/adr/0014).
+      - FITIT_MODEL
       - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY
+      - GROQ_API_KEY
+      - MISTRAL_API_KEY
+      - OLLAMA_BASE_URL
+      - FITIT_HOOK_TIMEOUT_MS
+      - FITIT_HOOK_MAX_BYTES
+      - FITIT_AGENT_MESSAGES_PER_HOUR
+      - BASE_URL=http://demo:8001
+      # Development-only default password; set POSTGRES_PASSWORD in the shell elsewhere (ADR 0017).
+      - DATABASE_URL=postgresql://fitit:${POSTGRES_PASSWORD:-fitit}@postgres:5432/fitit
+      - OTEL_SERVICE_NAME=fit-it-core
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - FITIT_TRACE_DIR=/var/lib/fitit-trace
+    volumes:
+      - fitit-trace:/var/lib/fitit-trace
+    depends_on:
+      demo:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  demo:
+    build: ./demo
+    # No published port: the demo app is only reachable through the core.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/openapi.json')"]
+      interval: 2s
+      retries: 15
+
+  postgres:
+    image: postgres:17
+    # No published port: only the core reaches the database (docs/specs/storage.md).
+    environment:
+      - POSTGRES_USER=fitit
+      - POSTGRES_DB=fitit
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-fitit}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "fitit", "-d", "fitit"]
+      interval: 2s
+      retries: 15
+
+  jaeger:
+    image: jaegertracing/jaeger:2.11.0
+    ports:
+      - "127.0.0.1:16686:16686"
+
+volumes:
+  pgdata:
+  fitit-trace:
