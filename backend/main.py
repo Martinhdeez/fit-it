@@ -127,6 +127,7 @@ async def ws(websocket: WebSocket):
     cookie = websocket.headers.get("cookie", "")
     user = await run_in_threadpool(resolve_user, cookie)
     if not user:
+        await websocket.accept()
         await websocket.close(code=4401)
         return
     from agent import handle_ws  # lazy: the agent module is optional for the proxy

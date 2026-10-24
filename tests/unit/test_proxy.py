@@ -148,3 +148,11 @@ def test_ws_rejects_anonymous_and_delegates(monkeypatch):
     monkeypatch.setitem(sys.modules, "agent", types.SimpleNamespace(handle_ws=handle_ws))
     with client("gerente").websocket_connect("/fitit/ws") as ws:
         assert ws.receive_json() == {"user": "gerente", "me": "gerente"}
+
+
+def test_ws_anonymous_is_accepted_then_closed_with_4401():
+    # Closing before accept() makes a real client see HTTP 403, not 4401.
+    with client().websocket_connect("/fitit/ws") as ws:
+        with pytest.raises(WebSocketDisconnect) as e:
+            ws.receive_text()
+    assert e.value.code == 4401
