@@ -6,3 +6,18 @@ services:
     environment:
       # Passed through from the host shell; never written to a file in the repo.
       - ANTHROPIC_API_KEY
+      - BASE_URL=http://demo:8001
+      - WORKSPACES=/workspaces
+    volumes:
+      - ./workspaces:/workspaces
+    depends_on:
+      demo:
+        condition: service_healthy
+
+  demo:
+    build: ./demo
+    # No published port: the demo app is only reachable through the core.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/openapi.json')"]
+      interval: 2s
+      retries: 15
