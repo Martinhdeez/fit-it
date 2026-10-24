@@ -9,6 +9,8 @@
   --surface-hover: #302e2b;
   --surface-sunk: #151412;
   --bubble: #2f2d2a;
+  --brand: #1e3a8a;
+  --brand-ink: #eef3ff;
   --on: #4cc47e;
   --on-ink: #0f1a13;
   --add: #86e0a8;
@@ -79,12 +81,12 @@ code {
   flex: none;
   width: 20px;
   height: 20px;
-  fill: var(--on);
+  fill: var(--brand);
 }
 
 .mark path {
   fill: none;
-  stroke: var(--on-ink);
+  stroke: var(--brand-ink);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
