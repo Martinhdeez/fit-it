@@ -38,6 +38,8 @@ def run_case(case) -> dict:
             conn.execute(f"CREATE SCHEMA {schema}")
         os.environ["DATABASE_URL"] = f"{base}?options=-csearch_path%3D{schema}"
         db.init()
+        if "setup" in case:
+            case["setup"]()
         trace.emit = lambda kind, **fields: events.append((kind, fields))
 
         step = "login"
