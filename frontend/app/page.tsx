@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   deleteHook,
   listHooks,
@@ -59,17 +59,11 @@ function toTurns(items: Item[]): Turn[] {
 }
 
 function Mark() {
-  const gradient = useId();
   return (
-    <svg className="mark" viewBox="0 0 20 20" aria-hidden="true">
-      <defs>
-        <linearGradient id={gradient} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="var(--brand-light)" />
-          <stop offset="1" stopColor="var(--brand)" />
-        </linearGradient>
-      </defs>
-      <rect width="20" height="20" rx="6" fill={`url(#${gradient})`} />
-      <path d="M7.5 14.5v-9h5.5M7.5 10h4.5" />
+    <svg className="mark" viewBox="16 16 88 88" aria-hidden="true">
+      <rect className="mark-spine" x="22" y="22" width="24" height="76" rx="12" />
+      <path d="M52 22H92a6 6 0 0 1 6 6v18a6 6 0 0 1-6 6H52z" />
+      <circle cx="64" cy="74" r="12" />
     </svg>
   );
 }

@@ -9,9 +9,8 @@
   --surface-hover: #302e2b;
   --surface-sunk: #151412;
   --bubble: #2f2d2a;
-  --brand: #1e3a8a;
-  --brand-light: #3563d9;
-  --brand-ink: #eef3ff;
+  --brand: #38bdf8;
+  --brand-ink: #ffffff;
   --on: #4cc47e;
   --on-ink: #0f1a13;
   --add: #86e0a8;
@@ -84,12 +83,12 @@ code {
   height: 20px;
 }
 
-.mark path {
-  fill: none;
-  stroke: var(--brand-ink);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.mark {
+  fill: var(--brand-ink);
+}
+
+.mark .mark-spine {
+  fill: var(--brand);
 }
 /* The iframe clips anything outside it, so every shadow must fit inside this gap. */
 .launcher {
