@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 import db
 import hooks
 import trace
+import transcribe
 
 
 @asynccontextmanager
@@ -157,6 +158,21 @@ def clear_history(request: Request):
     from agent import clear_history
     clear_history(user)
     return Response(status_code=204)
+
+
+@app.post("/fitit/transcribe")
+async def transcribe_audio(request: Request, language: str = ""):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    audio = await request.body()
+    try:
+        text = await run_in_threadpool(
+            transcribe.transcribe, audio, request.headers.get("content-type", ""), language
+        )
+    except transcribe.TranscriptionError as error:
+        return JSONResponse({"error": error.code}, error.status)
+    return {"text": text}
 
 
 @app.websocket("/fitit/ws")

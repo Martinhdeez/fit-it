@@ -1,82 +1,69 @@
-// Browser speech recognition (Web Speech API). Chrome sends the audio to Google for transcription.
+// Records a clip in the browser. The core transcribes it (POST /fitit/transcribe).
 
-type RecognitionEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
+const LIMIT_MS = 60_000;
+const MIME_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
 
-type Recognition = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: RecognitionEvent) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort(): void;
-};
+export type Recording = { stop(): void; abort(): void };
 
-type RecognitionClass = new () => Recognition;
-
-function recognitionClass(): RecognitionClass | undefined {
-  const scope = window as unknown as {
-    SpeechRecognition?: RecognitionClass;
-    webkitSpeechRecognition?: RecognitionClass;
-  };
-  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
+export function canRecord(): boolean {
+  return typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia !== undefined;
 }
 
-export function canDictate(): boolean {
-  return recognitionClass() !== undefined;
-}
-
-export type Dictation = { stop(): void; abort(): void };
-
-// onText gets the whole transcript so far; onEnd gets the error code, or null.
-export function startDictation(onText: (text: string) => void, onEnd: (error: string | null) => void): Dictation {
-  const Recognition = recognitionClass();
-  if (!Recognition) throw new Error("Speech recognition is not supported");
-  const recognition = new Recognition();
-  recognition.lang = navigator.language;
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  let error: string | null = null;
+export function startRecording(onStop: (blob: Blob) => void, onError: (message: string) => void): Recording {
+  let recorder: MediaRecorder | null = null;
   let aborted = false;
-  recognition.onresult = (event) => {
-    if (aborted) return;
-    let text = "";
-    for (let index = 0; index < event.results.length; index++) text += event.results[index][0].transcript;
-    onText(text);
-  };
-  recognition.onerror = (event) => {
-    error = event.error;
-  };
-  recognition.onend = () => onEnd(aborted ? null : error);
-  recognition.start();
+  let stopRequested = false;
+  let timer = 0;
+
+  navigator.mediaDevices
+    .getUserMedia({ audio: true })
+    .then((stream) => {
+      const release = () => stream.getTracks().forEach((track) => track.stop());
+      if (aborted) {
+        release();
+        return;
+      }
+      if (stopRequested) {
+        release();
+        onStop(new Blob());
+        return;
+      }
+      const mime = MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type));
+      recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const chunks: Blob[] = [];
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => {
+        window.clearTimeout(timer);
+        release();
+        if (!aborted) onStop(new Blob(chunks, { type: recorder?.mimeType || "audio/webm" }));
+      });
+      recorder.start();
+      timer = window.setTimeout(() => recorder?.stop(), LIMIT_MS);
+    })
+    .catch((error: unknown) => {
+      if (aborted) return;
+      aborted = true;
+      const name = error instanceof DOMException ? error.name : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        onError("Microphone blocked. Allow it in the browser to dictate.");
+      } else if (name === "NotFoundError") {
+        onError("No microphone found.");
+      } else {
+        onError("Could not use the microphone. Try again.");
+      }
+    });
 
   return {
-    stop: () => recognition.stop(),
-    abort: () => {
+    stop() {
+      stopRequested = true;
+      recorder?.stop();
+    },
+    abort() {
       aborted = true;
-      recognition.abort();
+      window.clearTimeout(timer);
+      if (recorder && recorder.state !== "inactive") recorder.stop();
     },
   };
-}
-
-export function dictationError(code: string): string | null {
-  switch (code) {
-    case "aborted":
-    case "no-speech":
-      return null;
-    case "not-allowed":
-    case "service-not-allowed":
-      return "Microphone blocked. Allow it in the browser to dictate.";
-    case "audio-capture":
-      return "No microphone found.";
-    case "network":
-      return navigator.onLine
-        ? "This browser cannot transcribe speech. Use Chrome, Edge or Safari to dictate."
-        : "Dictation needs an internet connection.";
-    default:
-      return "Dictation stopped. Try again.";
-  }
 }

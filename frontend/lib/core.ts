@@ -88,6 +88,23 @@ export async function deleteHook(name: string): Promise<void> {
   await request(`/fitit/hooks/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
+export async function transcribe(audio: Blob, language: string): Promise<string> {
+  const url = `/fitit/transcribe?language=${encodeURIComponent(language)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    body: audio,
+    credentials: "same-origin",
+    headers: { "content-type": audio.type || "application/octet-stream" },
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (response.status === 401) throw new SignedOut();
+  if (!response.ok) {
+    const code = isRecord(payload) ? str(payload.error) : "";
+    throw new Error(code || "transcription_failed");
+  }
+  return isRecord(payload) ? str(payload.text) : "";
+}
+
 export function reloadHostPage() {
   window.top?.location.reload();
 }
@@ -98,5 +115,5 @@ export type HostMessage =
   | { fitit: "resize"; width: number; height: number };
 
 export function tellHost(message: HostMessage) {
-  window.parent.postMessage(message, "*");
+  window.parent.postMessage(message, window.location.origin);
 }

@@ -93,19 +93,19 @@ code {
 /* The iframe clips anything outside it, so every shadow must fit inside this gap. */
 .launcher {
   position: fixed;
-  right: 10px;
-  bottom: 10px;
-  display: inline-flex;
-  gap: 9px;
-  align-items: center;
-  height: 44px;
-  padding: 0 18px 0 12px;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 16px;
   background: var(--surface);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   transition:
     transform 200ms var(--ease),
     box-shadow 200ms var(--ease);
@@ -127,6 +127,14 @@ code {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.35);
+  animation: rise 240ms var(--ease) backwards;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0.84;
+    transform: translateY(6px);
+  }
 }
 
 .resize-handle {
@@ -290,12 +298,14 @@ code {
   font-size: 15px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  animation: rise 240ms var(--ease) backwards;
 }
 
 .reply {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  animation: rise 240ms var(--ease) backwards;
 }
 
 .reply > .mark {
@@ -323,16 +333,23 @@ code {
 
 .shimmer {
   color: var(--ink);
-  mask: linear-gradient(90deg, #0008 0%, #000 45%, #0008 90%) 0 0 / 220% 100%;
+  -webkit-mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.4) 35%, #000 50%, rgb(0 0 0 / 0.4) 65%);
+  mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.4) 35%, #000 50%, rgb(0 0 0 / 0.4) 65%);
+  -webkit-mask-size: 220% 100%;
+  mask-size: 220% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
   animation: shimmer 1.8s linear infinite;
 }
 
 @keyframes shimmer {
   from {
-    mask-position: 110% 0;
+    -webkit-mask-position: 100% 0;
+    mask-position: 100% 0;
   }
   to {
-    mask-position: -110% 0;
+    -webkit-mask-position: 0% 0;
+    mask-position: 0% 0;
   }
 }
 
@@ -372,6 +389,21 @@ code {
 .activity[open] summary svg,
 .hooks[open] summary svg {
   transform: rotate(90deg);
+}
+
+.activity::details-content,
+.hooks::details-content {
+  height: 0;
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  transition:
+    height 200ms var(--ease),
+    content-visibility 200ms var(--ease) allow-discrete;
+}
+
+.activity[open]::details-content,
+.hooks[open]::details-content {
+  height: auto;
 }
 
 .activity ol {
@@ -612,6 +644,12 @@ code {
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
 }
 
+.composer.listening,
+.composer.listening:focus-within {
+  border-color: rgba(56, 189, 248, 0.55);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+}
+
 .composer textarea {
   display: block;
   width: 100%;
@@ -638,6 +676,46 @@ code {
 
 .composer textarea:disabled {
   cursor: default;
+}
+
+.wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 36px;
+  margin: 8px 6px 0 0;
+  pointer-events: none;
+}
+
+.wave span {
+  flex: none;
+  width: 3px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #7dd3fc, var(--brand));
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.28);
+  transform: scaleY(var(--rest, 0.45));
+  transform-origin: center;
+  animation: wave 1.12s ease-in-out infinite;
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.22);
+    opacity: 0.55;
+  }
+
+  35% {
+    transform: scaleY(var(--peak, 1));
+    opacity: 1;
+  }
+
+  68% {
+    transform: scaleY(calc(var(--peak, 1) * 0.42));
+    opacity: 0.72;
+  }
 }
 
 .composer-bar {
@@ -749,7 +827,17 @@ code {
   }
 
   .shimmer {
+    -webkit-mask: none;
     mask: none;
     color: var(--ink-soft);
+  }
+
+  .activity::details-content,
+  .hooks::details-content {
+    transition: none;
+  }
+
+  .wave span {
+    opacity: 0.95;
   }
 }

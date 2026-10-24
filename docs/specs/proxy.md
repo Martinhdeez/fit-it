@@ -13,6 +13,7 @@ Iteration 02. The v1 text is in git history (`git show a76b931:docs/specs/proxy.
 | 3 | New route `POST /fitit/hooks/{name}/undo`. | No (addition) | HS2 |
 | 4 | New route `DELETE /fitit/history`. | No (addition) | AG2 |
 | 5 | New variables `FITIT_HOOK_TIMEOUT_MS`, `FITIT_HOOK_MAX_BYTES`, `FITIT_AGENT_MESSAGES_PER_HOUR`; a breached hook limit fails closed like a raising hook. | No | SF1, AG2 |
+| 6 | New route `POST /fitit/transcribe`. The core sends the audio to OpenAI (`gpt-4o-mini-transcribe`) with `OPENAI_API_KEY`. | No (addition) | widget |
 
 ## Configuration
 
@@ -82,4 +83,5 @@ All of them return `401` `{"error": "unauthenticated"}` for anonymous users, exc
 | `DELETE /fitit/hooks/{name}` | `204`; `404` if the hook does not exist |
 | `POST /fitit/hooks/{name}/undo` | Calls `hooks.undo_hook`. `200` `{"name": str, "version": int, "diff": str}` with the restored version; `404` `{"error": "not_found"}` if the hook does not exist; `409` `{"error": "undo_failed", "detail": str}` if there is nothing to restore. On `200` it emits `hook.restored`. |
 | `DELETE /fitit/history` | Calls `agent.clear_history(user)`: the user's chat history is gone for every connection ([agent spec](agent.md#history)). `204`. |
+| `POST /fitit/transcribe` | Body is one audio clip (at most 10 MB) with an audio `content-type`. Optional query `language` is a BCP 47 tag; the core keeps the two-letter primary subtag. `200` `{"text": str}`. `400` `{"error": "empty_audio"}` when the body is empty. `413` `{"error": "audio_too_large"}` over 10 MB. `503` `{"error": "transcription_unavailable"}` when `OPENAI_API_KEY` is unset. `502` `{"error": "transcription_failed"}` when OpenAI fails. The key never leaves the core. |
 | `WS /fitit/ws` | The agent session ([agent spec](agent.md)) |

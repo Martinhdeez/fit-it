@@ -11,11 +11,12 @@ import {
   SignedOut,
   tellHost,
   toggleHook,
+  transcribe,
   UNAUTHENTICATED,
   type AgentEvent,
   type Hook,
 } from "../lib/core";
-import { canDictate, dictationError, startDictation, type Dictation } from "../lib/dictation";
+import { canRecord, startRecording, type Recording } from "../lib/dictation";
 
 type Connection = "idle" | "connecting" | "open" | "lost" | "signed-out";
 
@@ -69,6 +70,30 @@ function Mark() {
   );
 }
 
+const WAVE_BARS = 27;
+
+function Waveform() {
+  return (
+    <span className="wave" aria-hidden="true">
+      {Array.from({ length: WAVE_BARS }, (_, index) => {
+        const level = (0.34 + 0.66 * Math.abs(Math.sin(index * 0.68 + 0.5))).toFixed(2);
+        return (
+          <span
+            key={index}
+            style={
+              {
+                "--peak": level,
+                "--rest": level,
+                animationDelay: `${(index % 9) * 0.08}s`,
+              } as React.CSSProperties
+            }
+          />
+        );
+      })}
+    </span>
+  );
+}
+
 type Size = { width: number; height: number };
 
 const SIZE_KEY = "fitit-panel-size";
@@ -118,14 +143,15 @@ export default function Page() {
   const requestedSize = useRef<Size | null>(null);
   const [micSupported, setMicSupported] = useState(false);
   const [dictating, setDictating] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState("");
-  const dictationRef = useRef<Dictation | null>(null);
+  const recordingRef = useRef<Recording | null>(null);
 
   useEffect(() => {
-    setMicSupported(canDictate());
+    setMicSupported(canRecord());
     return () => {
       socketRef.current?.close();
-      dictationRef.current?.abort();
+      recordingRef.current?.abort();
     };
   }, []);
 
@@ -208,7 +234,7 @@ export default function Page() {
   }
 
   function closePanel() {
-    dictationRef.current?.abort();
+    cancelRecording();
     setOpen(false);
     tellHost({ fitit: "close" });
   }
@@ -251,11 +277,19 @@ export default function Page() {
     resizeTo(next, true);
   }
 
+  function cancelRecording() {
+    const recording = recordingRef.current;
+    if (!recording) return;
+    recordingRef.current = null;
+    setDictating(false);
+    recording.abort();
+  }
+
   function send() {
     const text = draft.trim();
     const socket = socketRef.current;
     if (!text || busy || connection !== "open" || !socket) return;
-    dictationRef.current?.abort();
+    cancelRecording();
     savedThisTurn.current = false;
     add({ kind: "prompt", text });
     setDraft("");
@@ -264,26 +298,41 @@ export default function Page() {
   }
 
   function toggleDictation() {
-    if (dictationRef.current) {
-      dictationRef.current.stop();
+    if (recordingRef.current) {
+      recordingRef.current.stop();
       return;
     }
     const base = draft.trim() === "" ? "" : `${draft.trimEnd()} `;
     setMicError("");
+    recordingRef.current = startRecording(
+      (blob) => {
+        recordingRef.current = null;
+        setDictating(false);
+        if (blob.size > 0) void finishDictation(base, blob);
+      },
+      (message) => {
+        recordingRef.current = null;
+        setDictating(false);
+        setMicError(message);
+      },
+    );
+    setDictating(true);
+  }
+
+  async function finishDictation(base: string, blob: Blob) {
+    setTranscribing(true);
     try {
-      dictationRef.current = startDictation(
-        (text) => setDraft(base + text.trimStart()),
-        (error) => {
-          dictationRef.current = null;
-          setDictating(false);
-          if (error) setMicError(dictationError(error) ?? "");
-          if (error === "network" && navigator.onLine) setMicSupported(false);
-          composerRef.current?.focus();
-        },
-      );
-      setDictating(true);
-    } catch {
-      setMicError(dictationError("") ?? "");
+      const text = (await transcribe(blob, navigator.language)).trim();
+      setDraft(text ? base + text : base.trimEnd());
+      if (!text) setMicError("No speech heard. Try again.");
+    } catch (error) {
+      if (error instanceof SignedOut) setConnection("signed-out");
+      else if (error instanceof Error && error.message === "transcription_unavailable") {
+        setMicError("Transcription is not set up on this server.");
+      } else setMicError("Transcription failed. Try again.");
+    } finally {
+      setTranscribing(false);
+      composerRef.current?.focus();
     }
   }
 
@@ -302,22 +351,23 @@ export default function Page() {
   if (!open) {
     return (
       <main className="shell">
-        <button type="button" className="launcher" aria-expanded={false} onClick={openPanel}>
+        <button type="button" className="launcher" aria-label="Open Fit-it" aria-expanded={false} onClick={openPanel}>
           <Mark />
-          Fit-it
         </button>
       </main>
     );
   }
 
   const signedOut = connection === "signed-out";
-  const locked = busy || connection !== "open";
+  const locked = busy || transcribing || connection !== "open";
   const status = signedOut
     ? SIGN_IN
     : connection === "connecting"
       ? "Connecting…"
-        : connection === "lost"
-          ? "Connection lost. Close and reopen Fit-it to retry."
+      : connection === "lost"
+        ? "Connection lost. Close and reopen Fit-it to retry."
+        : transcribing
+          ? "Transcribing…"
           : micError;
   const turns = toTurns(items);
   const enabledCount = hooks.filter((hook) => hook.enabled).length;
@@ -535,7 +585,7 @@ export default function Page() {
         </p>
 
         <form
-          className="composer"
+          className={dictating ? "composer listening" : "composer"}
           onSubmit={(event) => {
             event.preventDefault();
             send();
@@ -552,7 +602,7 @@ export default function Page() {
             value={draft}
             disabled={locked}
             onChange={(event) => {
-              dictationRef.current?.abort();
+              cancelRecording();
               setDraft(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -562,9 +612,14 @@ export default function Page() {
               }
             }}
           />
+          {dictating ? <Waveform /> : null}
           <div className="composer-bar">
             <span className={dictating ? "hint listening" : "hint"}>
-              {dictating ? "Listening… click the mic to stop" : "Enter to send, Shift + Enter for a new line"}
+              {dictating
+                ? "Listening… click the mic to stop"
+                : transcribing
+                  ? "Transcribing…"
+                  : "Enter to send, Shift + Enter for a new line"}
             </span>
             {micSupported ? (
               <button
@@ -572,7 +627,7 @@ export default function Page() {
                 className={dictating ? "mic on" : "mic"}
                 aria-label={dictating ? "Stop dictation" : "Dictate"}
                 aria-pressed={dictating}
-                disabled={locked}
+                disabled={signedOut || busy || transcribing}
                 onClick={toggleDictation}
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
