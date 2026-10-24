@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+from urllib.parse import urlsplit
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -34,7 +35,8 @@ app = FastAPI(lifespan=lifespan)
 EMBED = Path(__file__).parent / "static" / "embed.js"
 UI = Path(__file__).parent / "static" / "ui"  # widget static export (ADR 0015)
 SCRIPT = b'<script src="/fitit/embed.js" defer></script>'
-DROP_REQUEST = {"host", "content-length", "accept-encoding", "connection"}
+DROP_REQUEST = {"host", "content-length", "accept-encoding", "connection", "x-forwarded-for", "x-forwarded-host",
+                "x-forwarded-proto", "forwarded", "transfer-encoding", "te", "upgrade"}
 DROP_RESPONSE = {"content-length", "content-encoding", "transfer-encoding", "connection"}
 
 
@@ -90,13 +92,27 @@ def apply_hooks(user, cookie, method, path, data):
     if not applied:
         return None, []
     names = [h["name"] for h in applied]
-    return JSONResponse(result, headers={"x-fitit-hooks": ",".join(names)}), names
+    return JSONResponse(result, headers={"x-fitit-hooks": ",".join(names), "cache-control": "private, no-store"}), names
 
 
 def finish(response: Response, user, method, path, start, applied) -> Response:
     trace.emit("request.proxied", user=user, method=method, path=path, status=response.status_code,
                ms=round((time.perf_counter() - start) * 1000, 1), hooks=applied)
     return response
+
+
+def cross_origin(headers) -> bool:
+    """True when a browser sent an `Origin` whose host[:port] differs from the request's `Host`.
+    ponytail: the scheme is not compared, so TLS terminated in front of the core needs no proxy-headers setup."""
+    origin = headers.get("origin")
+    return origin is not None and urlsplit(origin).netloc != headers.get("host")
+
+
+@app.middleware("http")
+async def same_origin_writes(request: Request, call_next):
+    if request.url.path.startswith("/fitit/") and request.method != "GET" and cross_origin(request.headers):
+        return JSONResponse({"error": "forbidden", "detail": "cross-origin request"}, 403)
+    return await call_next(request)
 
 
 def unauthenticated() -> JSONResponse:
@@ -304,7 +320,17 @@ async def transcribe_audio(request: Request, language: str = ""):
     user = resolve_user(request.headers.get("cookie", ""))
     if not user:
         return unauthenticated()
-    audio = await request.body()
+    too_large = JSONResponse({"error": "audio_too_large"}, 413)
+    if int(request.headers.get("content-length") or 0) > transcribe.MAX_BYTES:
+        return too_large
+    from agent import rate_limited  # lazy, as in ws(); shares the agent's per-user hourly budget
+    if rate_limited(user):
+        return JSONResponse({"error": "rate_limited"}, 429)
+    audio = b""
+    async for chunk in request.stream():
+        audio += chunk
+        if len(audio) > transcribe.MAX_BYTES:
+            return too_large
     try:
         text = await run_in_threadpool(
             transcribe.transcribe, audio, request.headers.get("content-type", ""), language
@@ -316,6 +342,10 @@ async def transcribe_audio(request: Request, language: str = ""):
 
 @app.websocket("/fitit/ws")
 async def ws(websocket: WebSocket):
+    if cross_origin(websocket.headers):
+        await websocket.accept()
+        await websocket.close(code=4403)
+        return
     cookie = websocket.headers.get("cookie", "")
     user = await run_in_threadpool(resolve_user, cookie)
     if not user:
@@ -361,6 +391,8 @@ def forward(request: Request, body: bytes) -> Response:
     user = resolve_user(cookie)
     url = base_url() + request.scope["raw_path"].decode() + (f"?{request.url.query}" if request.url.query else "")
     headers = [(k, v) for k, v in request.headers.items() if k not in DROP_REQUEST]
+    if request.client:
+        headers.append(("x-forwarded-for", request.client.host))
     up = httpx.request(method, url, headers=headers, content=body)
 
     applied = []
