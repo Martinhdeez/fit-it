@@ -173,8 +173,11 @@ def test_bad_client_message_gets_error_and_done():
         assert ws.receive_json() == {"type": "done"}
 
 
+GENERIC_ERROR = "The assistant is unavailable right now. Try again later."
+
+
 @pytest.mark.parametrize("model, var", [("openai:gpt-5", "OPENAI_API_KEY"), ("nope:x", "FITIT_MODEL")])
-def test_unusable_model_gets_error_and_done(monkeypatch, model, var):
+def test_unusable_model_gets_generic_error_and_done(monkeypatch, model, var):
     monkeypatch.setenv("FITIT_MODEL", model)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
@@ -187,8 +190,16 @@ def test_unusable_model_gets_error_and_done(monkeypatch, model, var):
     with TestClient(app).websocket_connect("/ws") as ws:
         ws.send_json({"type": "message", "text": "hi"})
         error = ws.receive_json()
-        assert error["type"] == "error" and var in error["message"]
+        assert error == {"type": "error", "message": GENERIC_ERROR} and var not in error["message"]
         assert ws.receive_json() == {"type": "done"}
+
+
+def test_model_exception_text_is_not_sent_to_the_client():
+    def fn(messages, info):
+        raise RuntimeError("Set the `OPENAI_API_KEY` environment variable: sk-secret-123")
+
+    [turn] = chat(FunctionModel(fn), "hi")
+    assert turn == [{"type": "error", "message": GENERIC_ERROR}, {"type": "done"}]
 
 
 class DemoApi:
@@ -244,7 +255,17 @@ def test_instructions_list_current_hooks():
     hooks.save_hook("alice", "double", GOOD)
     chat(FunctionModel(fn), "hi")
     assert "no hooks yet" in seen[0] and "list_endpoints" in seen[0]
-    assert "double: GET /api/items (enabled)" in seen[1]
+    assert "double: GET /api/items (v1, enabled)" in seen[1]
+
+
+def test_history_omits_old_hook_code():
+    hooks.save_hook("alice", "double", GOOD)
+    chat(scripted(("read_hook", {"name": "double"}), ("write_hook", {"name": "double", "code": GOOD}), "Done."), "x2")
+    history = agent.load_history("alice")
+    calls = [p for m in history for p in m.parts if p.part_kind == "tool-call" and p.tool_name == "write_hook"]
+    returns = [p for m in history for p in m.parts if p.part_kind == "tool-return" and p.tool_name == "read_hook"]
+    assert calls[0].args_as_dict() == {"name": "double", "code": agent.STALE_CODE}
+    assert returns[0].content == agent.STALE_CODE
 
 
 def test_write_hook_same_name_edits(database):

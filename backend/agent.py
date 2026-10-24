@@ -1,5 +1,6 @@
 """Coding agent: turns a chat message into a validated hook, or finds a published one. Spec: docs/specs/agent.md."""
 import json
+import logging
 import os
 import time
 from collections import defaultdict, deque
@@ -110,7 +111,8 @@ def rate_limited(user: str) -> bool:
 
 
 def hooks_summary(user: str) -> str:
-    return "\n".join(f"- {h['name']}: {h['route']} ({'enabled' if h['enabled'] else 'disabled'})"
+    versions = hooks.versions(user)
+    return "\n".join(f"- {h['name']}: {h['route']} (v{versions.get(h['name'])}, {'enabled' if h['enabled'] else 'disabled'})"
                      for h in hooks.list_hooks(user)) or "no hooks yet"
 
 
@@ -144,13 +146,30 @@ def model_name() -> str:
     return os.environ.get("FITIT_MODEL", "anthropic:claude-opus-5-5")
 
 
+STALE_CODE = "<omitted: call read_hook for the current code>"
+
+
 def load_history(user: str, conversation: str = "default") -> list:
     """The conversation's last HISTORY_TURNS turns, oldest first, as one message list."""
     with db.connect() as conn:
         rows = conn.execute(
             "SELECT turn FROM (SELECT id, turn FROM messages WHERE user_id = %s AND conversation_id = %s"
             " ORDER BY id DESC LIMIT %s) t ORDER BY id", (user, conversation, HISTORY_TURNS)).fetchall()
-    return ModelMessagesTypeAdapter.validate_python([m for (turn,) in rows for m in turn])
+    messages = [m for (turn,) in rows for m in turn]
+    for m in messages:  # old hook code is stale after an undo or another turn's save: the model must read_hook again
+        for part in m.get("parts", []):
+            if part.get("part_kind") == "tool-call" and part.get("tool_name") == "write_hook":
+                args = part.get("args")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        continue
+                if isinstance(args, dict) and "code" in args:
+                    part["args"] = {**args, "code": STALE_CODE}
+            elif part.get("part_kind") == "tool-return" and part.get("tool_name") == "read_hook":
+                part["content"] = STALE_CODE
+    return ModelMessagesTypeAdapter.validate_python(messages)
 
 
 def save_turn(user: str, messages: list, conversation: str = "default") -> None:
@@ -442,9 +461,11 @@ async def handle_ws(websocket, user: str, api, conversation: str = "default") ->
                 raise
             except Exception as e:
                 await flush()
-                message = str(e) or type(e).__name__
-                if message.startswith("Unknown model"):
-                    message += ". Set FITIT_MODEL to a Pydantic AI 'provider:model' string."
+                if isinstance(e, TooManyRejections):
+                    message = str(e)
+                else:  # provider and config errors name env vars and internals: log them, show a generic text
+                    logging.exception("agent turn failed")
+                    message = "The assistant is unavailable right now. Try again later."
                 await websocket.send_json({"type": "error", "message": message})
             finally:
                 _busy.discard(key)
