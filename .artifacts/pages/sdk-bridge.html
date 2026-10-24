@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fit-it SDK bridge</title>
+<style>html, body, #app { margin: 0; height: 100%; }</style>
+<script>window.EXCALIDRAW_ASSET_PATH = "https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const box = (id, x, y, w, h, bg, stroke, text, fontSize = 20, extra = {}) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, roundness: { type: 3 }, label: { text, fontSize }, ...extra,
+});
+const zone = (id, x, y, w, h, bg, stroke) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, strokeWidth: 1, opacity: 30, roundness: { type: 3 },
+});
+const panel = (id, x, y, w, h, bg, stroke) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid", strokeColor: stroke, roundness: { type: 3 },
+});
+const text = (id, x, y, t, fontSize, color = "#1e1e1e", extra = {}) => ({ type: "text", id, x, y, text: t, fontSize, strokeColor: color, ...extra });
+const code = (id, x, y, t, color) => text(id, x, y, t, 18, color, { fontFamily: 3 });
+const arrow = (id, x, y, points, color, extra = {}) => ({ type: "arrow", id, x, y, points, strokeColor: color, endArrowhead: "arrow", ...extra });
+const lbl = (t) => ({ text: t, fontSize: 16 });
+
+const BLUE = "#4a9eed", PURPLE = "#8b5cf6", GREEN = "#22c55e", AMBER = "#f59e0b", TEAL = "#06b6d4", GREY = "#757575";
+const CORE = ["#d0bfff", PURPLE], SDK = ["#a5d8ff", BLUE];
+
+const skeleton = [
+  text("title", 0, 10, "Fit-it SDK bridge (superseded by API-only) - no DB credentials in core", 34),
+
+  // CORE
+  zone("zk", 0, 80, 720, 820, "#e5dbff", PURPLE),
+  text("zkt", 20, 92, "FIT-IT CORE", 24, "#6d28d9"),
+  box("agent", 30, 140, 300, 140, ...CORE, "Coding Agent\nreads catalog\nin its prompt"),
+  box("catalog", 390, 140, 300, 140, "#c3fae8", TEAL, "Schema catalog\nresources, tables,\nparams, columns", 18),
+  arrow("acat", 390, 210, [[0, 0], [-60, 0]], TEAL),
+  box("hook", 30, 340, 320, 160, ...CORE, "Hook (user_42)\nctx.fetch(\n\"patient_history\",\npatient_id=3)", 18),
+  box("runner", 30, 560, 320, 140, ...CORE, "Hook runner\nctx = user_id + trace_id\n(signed by core)", 18),
+  arrow("arun", 190, 560, [[0, 0], [0, -60]], PURPLE),
+  box("bridge", 390, 340, 300, 360, ...CORE, "Bridge endpoint\nWS /bridge/{project}\n\nauth: project secret\nJSON-RPC:\nfetch / mutate / catalog\n\npending calls by id", 18),
+  arrow("afetch", 350, 420, [[0, 0], [40, 0]], PURPLE),
+  text("tfetch", 300, 300, "1. ctx.fetch", 16, "#6d28d9"),
+  arrow("abcat", 540, 340, [[0, 0], [0, -60]], TEAL),
+  box("trace", 30, 750, 660, 110, "#fff3bf", AMBER, "6. AgentTrace: every fetch logged\ntrace_id, resource, user_id, rows, ms", 18),
+  arrow("atrace", 540, 700, [[0, 0], [0, 50]], AMBER),
+
+  // TUNNEL
+  arrow("aconn", 1080, 245, [[0, 0], [-200, 0], [-200, 135], [-390, 135]], PURPLE, { strokeWidth: 3, label: lbl("0. client dials OUT\n+ sends catalog") }),
+  arrow("areq", 690, 500, [[0, 0], [370, 0]], BLUE, { strokeWidth: 3, label: lbl("2. {id, resource, params,\nuser_id, trace_id}") }),
+  arrow("aresp", 1060, 640, [[0, 0], [-370, 0]], BLUE, { strokeWidth: 3, strokeStyle: "dashed", label: lbl("5. {id, rows, ms}") }),
+
+  // CLIENT BACKEND
+  zone("zc", 1030, 80, 880, 820, "#dbe4ff", BLUE),
+  text("zct", 1050, 92, "CLIENT BACKEND (existing app + SDK)", 24, "#2563eb"),
+  panel("sdk", 1060, 140, 520, 600, "#e7f5ff", BLUE),
+  text("sdkt", 1080, 150, "FIT-IT SDK  (pip install fitit)", 20, "#1e40af"),
+  box("conn", 1080, 190, 480, 110, ...SDK, "Connector\nWS client, reconnect, secret", 18),
+  box("reg", 1080, 320, 480, 130, ...SDK, "Registry\n@resource   expose_table   @mutation", 18),
+  box("guard", 1080, 470, 480, 150, "#ffd8a8", AMBER, "3. Guard\nread-only default, row scope :user_id\ncolumn allowlist, max_rows, timeout", 18, { strokeWidth: 3 }),
+  box("exec", 1080, 640, 480, 80, ...SDK, "Executor: run query / function", 18),
+  arrow("a_c_r", 1320, 300, [[0, 0], [0, 20]], BLUE),
+  arrow("a_r_g", 1320, 450, [[0, 0], [0, 20]], BLUE),
+  arrow("a_g_e", 1320, 620, [[0, 0], [0, 20]], BLUE),
+  box("app", 1610, 140, 280, 300, "#e9ecef", GREY, "Existing app code\nroutes, ORM,\nbusiness logic\n(unchanged)", 18),
+  arrow("aapp", 1610, 385, [[0, 0], [-50, 0]], GREY),
+  text("tapp", 1600, 455, "registers resources", 16, "#495057"),
+  box("db", 1150, 790, 340, 90, "#b2f2bb", GREEN, "Client DB (Postgres / MySQL)\ncredentials stay here", 18, { strokeWidth: 3 }),
+  arrow("adb", 1320, 720, [[0, 0], [0, 70]], GREEN, { strokeWidth: 3, startArrowhead: "arrow", label: lbl("4. scoped SQL") }),
+
+  // CODE PANELS
+  text("tsetup", 0, 940, "Client setup (one time, ~5 lines)", 22, "#2563eb"),
+  panel("psetup", 0, 980, 920, 380, "#f8f9fa", BLUE),
+  code("csetup", 20, 1000,
+    "bridge = Bridge(core_url=\"wss://core:8000\",\n" +
+    "                project_id=\"clinic_crm\", secret=SECRET)\n\n" +
+    "@bridge.resource(\"patient_history\",\n" +
+    "                 description=\"Past visits of one patient\")\n" +
+    "def patient_history(ctx, patient_id: int):\n" +
+    "    return db.query(\"SELECT date, diagnosis FROM visits \"\n" +
+    "                    \"WHERE patient_id=:p AND doctor_id=:me\",\n" +
+    "                    p=patient_id, me=ctx.user_id)\n\n" +
+    "bridge.expose_table(\"invoices\", columns=[...],\n" +
+    "                    row_scope=\"doctor_id = :user_id\")\n" +
+    "bridge.start()", "#1e3a8a"),
+  text("thook", 980, 940, "Hook written by the agent", 22, "#6d28d9"),
+  panel("phook", 980, 980, 930, 380, "#f8f9fa", PURPLE),
+  code("chook", 1000, 1000,
+    "# /workspaces/clinic_crm/user_42/on_invoice_created.py\n\n" +
+    "history = ctx.fetch(\"patient_history\",\n" +
+    "                    patient_id=payload[\"patient_id\"])\n\n" +
+    "if any(\"diabetes\" in v[\"diagnosis\"].lower()\n" +
+    "       for v in history):\n" +
+    "    payload[\"discount\"] = 0.15\n\n" +
+    "# no SQL, no credentials, no other users' rows", "#4c1d95"),
+
+  text("legend", 0, 1400,
+    "0 connect + catalog   1 hook asks   2 request over tunnel   3 SDK guard   4 scoped query   5 rows back   6 audit log", 20, "#555555"),
+];
+
+const { Excalidraw, convertToExcalidrawElements } = ExcalidrawLib;
+ReactDOM.createRoot(document.getElementById("app")).render(
+  React.createElement(Excalidraw, {
+    initialData: { elements: convertToExcalidrawElements(skeleton), scrollToContent: true },
+  })
+);
+</script>
+</body>
+</html>

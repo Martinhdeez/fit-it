@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fit-it architecture</title>
+<style>html, body, #app { margin: 0; height: 100%; }</style>
+<script>window.EXCALIDRAW_ASSET_PATH = "https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const box = (id, x, y, w, h, bg, stroke, text, fontSize = 20, extra = {}) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, roundness: { type: 3 }, label: { text, fontSize }, ...extra,
+});
+const zone = (id, x, y, w, h, bg, stroke) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, strokeWidth: 1, opacity: 30, roundness: { type: 3 },
+});
+const text = (id, x, y, t, fontSize, color = "#1e1e1e", extra = {}) => ({ type: "text", id, x, y, text: t, fontSize, strokeColor: color, ...extra });
+const arrow = (id, x, y, points, color, extra = {}) => ({ type: "arrow", id, x, y, points, strokeColor: color, endArrowhead: "arrow", ...extra });
+const num = (t) => ({ text: t, fontSize: 16 });
+
+const BLUE = "#4a9eed", PURPLE = "#8b5cf6", RED = "#ef4444", GREEN = "#22c55e", AMBER = "#f59e0b", TEAL = "#06b6d4", GREY = "#757575", PINK = "#ec4899";
+const CORE = ["#d0bfff", PURPLE];
+
+const skeleton = [
+  text("title", 100, 10, "Fit-it - final architecture: reverse proxy, API-only", 36),
+
+  // TOP: USER / BROWSER
+  zone("zu", 380, 80, 900, 210, "#dbe4ff", BLUE),
+  text("zut", 400, 90, "USER / WEB BROWSER", 22, "#2563eb"),
+  box("user", 400, 130, 500, 130, "#a5d8ff", BLUE, "User / Web Browser\npersonalized page"),
+  box("widget", 950, 130, 300, 130, "#e7f5ff", BLUE, "embed.js widget\n(injected by core)\nchat + live diffs", 18),
+
+  // MIDDLE: FIT-IT CORE
+  zone("zk", 100, 380, 1300, 620, "#e5dbff", PURPLE),
+  text("zkt", 120, 392, "FIT-IT CORE (FastAPI Reverse Proxy)", 24, "#6d28d9"),
+  box("proxy", 150, 450, 300, 400, ...CORE, "Proxy router\nall traffic\nenters here\n\nuser_id from\nsession", 20),
+  box("runner", 520, 450, 380, 400, "#ffd8a8", AMBER,
+    "5. Hook Runner /\nHTML Injector\n\nJSON: run user hooks\nHTML: inject embed.js\nx/: virtual endpoints", 20, { strokeWidth: 3 }),
+  arrow("apr", 450, 650, [[0, 0], [70, 0]], BLUE),
+  box("ctxapi", 520, 880, 220, 90, "#eebefa", PINK, "ctx.api\nuser's own session", 18, { strokeWidth: 3 }),
+  arrow("actx", 630, 850, [[0, 0], [0, 30]], PINK),
+  box("agent", 970, 450, 380, 160, ...CORE, "Coding Agent (Claude)\nreads OpenAPI catalog\nwrites hooks", 20),
+  box("trace", 970, 690, 180, 160, ...CORE, "AgentTrace\ntraces.jsonl\n+ live\nstream", 18),
+  box("catalog", 1170, 690, 180, 160, "#c3fae8", TEAL, "OpenAPI\ncatalog\nendpoints +\nschemas", 18),
+  arrow("atr", 1060, 610, [[0, 0], [0, 80]], PURPLE, { strokeStyle: "dashed" }),
+  arrow("acat", 1260, 690, [[0, 0], [0, -80]], TEAL),
+
+  // RIGHT: WORKSPACES
+  zone("zw", 1500, 380, 420, 620, "#d3f9d8", GREEN),
+  text("zwt", 1520, 392, "PER-USER WORKSPACES", 22, "#15803d"),
+  { type: "rectangle", id: "fs", x: 1520, y: 450, width: 380, height: 420, backgroundColor: "#c3fae8", fillStyle: "solid", strokeColor: GREEN, roundness: { type: 3 } },
+  text("fst", 1545, 475,
+    "/workspaces/\n" +
+    "  user_42/\n" +
+    "    on_invoice_created.py\n" +
+    "    on_page_html.py\n" +
+    "    x/debt_chart.py\n" +
+    "    traces.jsonl\n" +
+    "  user_7/\n" +
+    "    (empty: base app)", 20, "#14532d", { fontFamily: 3 }),
+
+  // BOTTOM: ORIGINAL CLIENT APP
+  zone("zc", 100, 1100, 1300, 300, "#f1f3f5", GREY),
+  text("zct", 450, 1115, "ORIGINAL CLIENT APP", 24, "#495057"),
+  box("badge", 1050, 1112, 330, 50, "#b2f2bb", GREEN, "ZERO MODIFICATIONS REQUIRED", 18, { strokeWidth: 3 }),
+  box("cfe", 150, 1200, 480, 150, "#e9ecef", GREY, "Client Frontend (untouched)\nHTML / JS bundle"),
+  box("cbe", 690, 1200, 660, 150, "#e9ecef", GREY, "Client Backend (untouched)\nREST API + /openapi.json\nits own auth, rules, DB"),
+
+  // OPTIONAL DB PLUGIN
+  box("dbplug", 1500, 1200, 420, 150, "#f8f9fa", GREY,
+    "Optional DB adapter (later)\nread-only replica\nOFF by default, opt-in per project", 18, { strokeStyle: "dashed" }),
+
+  // NUMBERED FLOW
+  arrow("a1", 420, 260, [[0, 0], [0, 190]], BLUE, { strokeWidth: 3, label: num("1. HTTP request\n(page load / API call)") }),
+  arrow("a2", 900, 650, [[0, 0], [620, 0]], GREEN, { strokeWidth: 3, label: num("2. Load user's hooks") }),
+  arrow("a3", 230, 850, [[0, 0], [0, 350]], BLUE, { strokeWidth: 3, label: num("3. Forward request\nto base app") }),
+  arrow("a4", 870, 1200, [[0, 0], [0, -350]], BLUE, { strokeWidth: 3, strokeStyle: "dashed", label: num("4. Base\nHTML / JSON") }),
+  arrow("a6", 800, 450, [[0, 0], [0, -190]], BLUE, { strokeWidth: 3, label: num("6. Personalized\nUI / data") }),
+  arrow("a7", 700, 970, [[0, 0], [0, 230]], PINK, { strokeWidth: 3, startArrowhead: "arrow", label: num("extra API calls\n= super()") }),
+  arrow("aoapi", 1350, 1275, [[0, 0], [70, 0], [70, -505], [0, -505]], TEAL, { strokeStyle: "dashed", label: num("GET\n/openapi.json") }),
+
+  // BLOCKED DIRECT ACCESS
+  arrow("ablock", 400, 195, [[0, 0], [-360, 0], [-360, 1080], [-300, 1080]], RED, { strokeStyle: "dashed", label: num("direct access\nblocked") }),
+  text("xmark", 22, 560, "X", 56, RED),
+
+  // CONTROL PLANE
+  arrow("aws", 1100, 260, [[0, 0], [0, 190]], PURPLE, { strokeStyle: "dashed", strokeWidth: 3, startArrowhead: "arrow", label: num("WebSocket\ncontrol plane") }),
+  arrow("awrite", 1350, 530, [[0, 0], [170, 0]], PURPLE, { strokeStyle: "dashed", strokeWidth: 3, label: num("write hooks") }),
+
+  text("legend", 100, 1440,
+    "Blue: request path (1, 3, 4, 6)   Green: load hooks (2)   Pink: ctx.api extra calls with user's session   Teal: OpenAPI catalog   Purple dashed: control plane", 20, "#555555"),
+  text("legend2", 100, 1475,
+    "Hooks never exceed the user's own permissions: every extra call goes through the app's API with that user's session.", 20, "#6d28d9"),
+];
+
+const { Excalidraw, convertToExcalidrawElements } = ExcalidrawLib;
+ReactDOM.createRoot(document.getElementById("app")).render(
+  React.createElement(Excalidraw, {
+    initialData: { elements: convertToExcalidrawElements(skeleton), scrollToContent: true },
+  })
+);
+</script>
+</body>
+</html>

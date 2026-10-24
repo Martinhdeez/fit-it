@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fit-it v0 workflow</title>
+<style>html, body, #app { margin: 0; height: 100%; }</style>
+<script>window.EXCALIDRAW_ASSET_PATH = "https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const box = (id, x, y, w, h, bg, stroke, text, fontSize = 20, extra = {}) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, roundness: { type: 3 }, label: { text, fontSize }, ...extra,
+});
+const zone = (id, x, y, w, h, bg, stroke) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, strokeWidth: 1, opacity: 30, roundness: { type: 3 },
+});
+const text = (id, x, y, t, fontSize, color = "#1e1e1e", extra = {}) => ({ type: "text", id, x, y, text: t, fontSize, strokeColor: color, ...extra });
+const arrow = (id, x, y, points, color, extra = {}) => ({ type: "arrow", id, x, y, points, strokeColor: color, endArrowhead: "arrow", ...extra });
+
+const FE = ["#a5d8ff", "#4a9eed"], BE = ["#d0bfff", "#8b5cf6"], OK = ["#b2f2bb", "#22c55e"];
+const WHITE = ["#ffffff", "#1e1e1e"], OFF = ["#e9ecef", "#757575"], TEAL = ["#c3fae8", "#06b6d4"];
+
+const skeleton = [
+  text("title", 20, 10, "Fit-it v0 - clinic CodeBox workflow", 36),
+
+  zone("zfe", 0, 80, 480, 1110, "#dbe4ff", "#4a9eed"),
+  text("zfet", 20, 92, "FRONTEND (React + Tailwind)", 24, "#2563eb"),
+  box("ferole", 30, 140, 420, 80, ...FE, "Role switcher: sets user_id"),
+  box("fetable", 30, 240, 420, 170, ...FE, "Live App View\npatients table\n+ badges / warnings"),
+  box("feinsp", 30, 480, 420, 200, ...FE, "Pipeline Inspector\nbox cards, ON/OFF toggle\nsource + logs\ntrace_id -> Jaeger link"),
+  box("fechat", 30, 800, 420, 150, ...FE, "Agent Chat\n\"hide phones if debt\""),
+
+  zone("zbe", 560, 80, 900, 1110, "#e5dbff", "#8b5cf6"),
+  text("zbet", 580, 92, "BACKEND (FastAPI, single process)", 24, "#6d28d9"),
+  box("beapi", 590, 240, 240, 170, ...BE, "GET /api/data\n?user_id="),
+  arrow("areq", 450, 290, [[0, 0], [140, 0]], "#4a9eed", { label: { text: "GET", fontSize: 18 } }),
+  arrow("aresp", 590, 360, [[0, 0], [-140, 0]], "#4a9eed", { strokeStyle: "dashed", label: { text: "JSON", fontSize: 18 } }),
+  box("berun", 880, 240, 550, 170, ...BE, "run_pipeline(user)\nraw rows -> box 1 -> box 2 -> ...\nbox error = fail closed (data [])"),
+  arrow("arun", 830, 325, [[0, 0], [50, 0]], "#4a9eed"),
+
+  { type: "rectangle", id: "reg", x: 590, y: 470, width: 840, height: 300, backgroundColor: "#fff3bf", fillStyle: "solid", strokeColor: "#f59e0b", roundness: { type: 3 } },
+  text("regt", 610, 482, "user_boxes: dict[user_id, list[CodeBox]]  (one pipeline per user)", 20, "#92400e"),
+  box("u1", 610, 525, 180, 50, ...WHITE, "recepcion", 18),
+  box("b11", 810, 525, 220, 50, ...OK, "Mask phones", 18),
+  box("b12", 1050, 525, 240, 50, ...OK, "Hide diagnoses", 18),
+  box("u2", 610, 585, 180, 50, ...WHITE, "dr_garcia", 18),
+  box("b21", 810, 585, 220, 50, ...OK, "Own patients", 18),
+  box("u3", 610, 645, 180, 50, ...WHITE, "gerente", 18),
+  box("b31", 810, 645, 220, 50, ...OK, "Debt badge", 18),
+  box("b32", 1050, 645, 240, 50, ...OFF, "High-risk (OFF)", 18, { strokeStyle: "dashed" }),
+  box("u4", 610, 705, 180, 50, ...WHITE, "new user", 18, { strokeStyle: "dashed" }),
+  box("b41", 810, 705, 360, 50, "#ffffff", "#757575", "[] empty pipeline, same app", 18, { strokeStyle: "dashed" }),
+  arrow("areg", 1380, 470, [[0, 0], [0, -60]], "#f59e0b"),
+  arrow("ainsp", 450, 580, [[0, 0], [160, 0]], "#f59e0b", { startArrowhead: "arrow", label: { text: "CRUD", fontSize: 18 } }),
+
+  box("beagent", 590, 830, 260, 140, ...BE, "Agent compiler\nPOST /api/agent\nprompt -> BoxIn"),
+  arrow("achat", 450, 875, [[0, 0], [140, 0]], "#8b5cf6", { label: { text: "prompt", fontSize: 18 } }),
+  box("llm", 590, 1030, 260, 110, "#ffd8a8", "#f59e0b", "LLM (Claude)\nstructured output", 18),
+  arrow("allm", 720, 970, [[0, 0], [0, 60]], "#8b5cf6", { startArrowhead: "arrow" }),
+  box("beguard", 910, 830, 260, 140, "#ffd8a8", "#f59e0b", "AST guard\ncheck_code()"),
+  arrow("aag", 850, 900, [[0, 0], [60, 0]], "#8b5cf6"),
+  arrow("apass", 1040, 830, [[0, 0], [0, -60]], "#22c55e", { strokeWidth: 3 }),
+  text("tpass", 1052, 785, "pass: append", 18, "#15803d"),
+  box("berej", 1230, 830, 200, 140, "#ffc9c9", "#ef4444", "Reject 400\nimport, eval,\n_private", 18),
+  arrow("arej", 1170, 900, [[0, 0], [60, 0]], "#ef4444"),
+  arrow("aback", 1330, 970, [[0, 0], [0, 200], [-1090, 200], [-1090, -20]], "#ef4444", { strokeStyle: "dashed", label: { text: "error shown in chat", fontSize: 18 } }),
+
+  zone("zdb", 1540, 80, 320, 360, "#d3f9d8", "#22c55e"),
+  text("zdbt", 1560, 92, "DATA", 24, "#15803d"),
+  box("db", 1570, 240, 260, 170, "#c3fae8", "#22c55e", "SQLite (memory)\npatients, doctors,\nappointments,\ndiagnoses, invoices", 18),
+  arrow("adb", 1430, 325, [[0, 0], [140, 0]], "#4a9eed", { startArrowhead: "arrow" }),
+
+  zone("zobs", 1540, 480, 320, 500, "#c5f6fa", "#06b6d4"),
+  text("zobst", 1560, 492, "OBSERVABILITY", 24, "#0e7490"),
+  box("otel", 1570, 560, 260, 150, ...TEAL, "OpenTelemetry SDK\nTracerProvider\nBatchSpanProcessor", 18),
+  arrow("aspans", 1460, 635, [[0, 0], [110, 0]], "#06b6d4", { strokeStyle: "dashed", label: { text: "spans", fontSize: 18 } }),
+  box("jaeger", 1570, 800, 260, 150, ...TEAL, "Jaeger all-in-one\nOTLP :4318\nUI :16686", 18),
+  arrow("aotlp", 1700, 710, [[0, 0], [0, 90]], "#06b6d4", { label: { text: "OTLP", fontSize: 18 } }),
+
+  text("tracet", 20, 1230, "TRACES (what Jaeger shows)", 24, "#0e7490"),
+  { type: "rectangle", id: "trr", x: 0, y: 1275, width: 920, height: 280, backgroundColor: "#e7f5ff", fillStyle: "solid", strokeColor: "#4a9eed", roundness: { type: 3 } },
+  text("trrt", 25, 1295,
+    "GET /api/data           user.id, user.role\n" +
+    "  pipeline.run          boxes.enabled, blocked_by\n" +
+    "    db.fetch_patients   rows\n" +
+    "    codebox.exec        box.id, rows.in, rows.out, status\n" +
+    "      event: print() logs\n" +
+    "    codebox.exec        ERROR -> fail closed\n" +
+    "  response carries trace_id", 20, "#1e3a8a", { fontFamily: 3 }),
+  { type: "rectangle", id: "trw", x: 960, y: 1275, width: 900, height: 280, backgroundColor: "#f3f0ff", fillStyle: "solid", strokeColor: "#8b5cf6", roundness: { type: 3 } },
+  text("trwt", 985, 1295,
+    "POST /api/agent         user.id, prompt\n" +
+    "  agent.compile         gen_ai.request.model,\n" +
+    "                        gen_ai.usage.input_tokens\n" +
+    "  guard.check           verdict, rule\n" +
+    "  event: codebox.created  box.id, code hash", 20, "#4c1d95", { fontFamily: 3 }),
+
+  text("legend", 20, 1590, "Blue: read flow    Purple: write flow    Amber: per-user registry    Red: rejected / fail closed    Cyan: tracing    Dashed: disabled or new", 20, "#555555"),
+];
+
+const { Excalidraw, convertToExcalidrawElements } = ExcalidrawLib;
+ReactDOM.createRoot(document.getElementById("app")).render(
+  React.createElement(Excalidraw, {
+    initialData: { elements: convertToExcalidrawElements(skeleton), scrollToContent: true },
+  })
+);
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fit-it v1 architecture</title>
+<style>html, body, #app { margin: 0; height: 100%; }</style>
+<script>window.EXCALIDRAW_ASSET_PATH = "https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/";</script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@excalidraw/excalidraw@0.17.6/dist/excalidraw.production.min.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const box = (id, x, y, w, h, bg, stroke, text, fontSize = 20, extra = {}) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, roundness: { type: 3 }, label: { text, fontSize }, ...extra,
+});
+const zone = (id, x, y, w, h, bg, stroke) => ({
+  type: "rectangle", id, x, y, width: w, height: h, backgroundColor: bg, fillStyle: "solid",
+  strokeColor: stroke, strokeWidth: 1, opacity: 30, roundness: { type: 3 },
+});
+const text = (id, x, y, t, fontSize, color = "#1e1e1e", extra = {}) => ({ type: "text", id, x, y, text: t, fontSize, strokeColor: color, ...extra });
+const arrow = (id, x, y, points, color, extra = {}) => ({ type: "arrow", id, x, y, points, strokeColor: color, endArrowhead: "arrow", ...extra });
+
+const CLIENT = ["#a5d8ff", "#4a9eed"], CORE = ["#d0bfff", "#8b5cf6"];
+const BLUE = "#4a9eed", PURPLE = "#8b5cf6", RED = "#ef4444", GREEN = "#22c55e", AMBER = "#f59e0b", PINK = "#ec4899";
+
+const skeleton = [
+  text("title", 20, 10, "Fit-it v1 - SDK bridge + application-level extends", 36),
+
+  // CLIENT APP
+  zone("zc", 0, 80, 520, 1220, "#dbe4ff", BLUE),
+  text("zct", 20, 92, "CLIENT APP (any language)", 24, "#2563eb"),
+  box("cfe", 30, 140, 460, 190, ...CLIENT, "Client frontend (any framework)\n<script src=\"core/embed.js\"\ndata-project data-user>"),
+  box("cwid", 30, 370, 460, 150, "#e7f5ff", BLUE, "Embed widget (Shadow DOM)\nchat + live trace + diffs"),
+  arrow("amount", 260, 330, [[0, 0], [0, 40]], BLUE),
+  box("cbe", 30, 590, 460, 100, ...CLIENT, "Client backend\nbase routes + own DB"),
+  box("csdk", 30, 720, 460, 230, "#4a9eed", "#1e40af",
+    "Fit-it SDK (Node / Go / Python)\nintercept() + 100 ms timeout\nfail-open / fail-closed (critical)\ncontext handlers: exposes\nbase API / DB to the core", 18, { strokeWidth: 3 }),
+  arrow("abesdk", 260, 690, [[0, 0], [0, 30]], BLUE, { startArrowhead: "arrow" }),
+  box("cfail", 30, 990, 460, 90, "#ffc9c9", RED, "core down / timeout:\nnormal hook: keep payload\ncritical hook: block", 18),
+  arrow("afail", 260, 950, [[0, 0], [0, 40]], RED, { strokeStyle: "dashed" }),
+
+  // CORE
+  zone("zk", 600, 80, 900, 1220, "#e5dbff", PURPLE),
+  text("zkt", 620, 92, "FIT-IT CORE (FastAPI sidecar, open source)", 24, "#6d28d9"),
+
+  box("trace", 630, 150, 240, 160, ...CORE, "AgentTrace log\ntraces.jsonl\nsteps -> stream", 18),
+  box("llm", 920, 160, 260, 120, "#ffd8a8", AMBER, "LLM (Claude API)", 20, { strokeStyle: "dashed" }),
+  text("tcp", 1210, 330, "CONTROL PLANE (WebSocket)", 20, "#6d28d9"),
+  box("ws", 630, 370, 240, 150, ...CORE, "WS /api/v1/ws\n/{project}/{user}"),
+  arrow("awid", 490, 445, [[0, 0], [140, 0]], PURPLE, { startArrowhead: "arrow", label: { text: "chat / steps", fontSize: 16 } }),
+  box("agent", 920, 370, 260, 150, ...CORE, "Coding agent\ntool use: read, write,\nlist, run_check", 18),
+  arrow("aws", 870, 445, [[0, 0], [50, 0]], PURPLE, { startArrowhead: "arrow" }),
+  arrow("allm", 1050, 280, [[0, 0], [0, 90]], PURPLE, { startArrowhead: "arrow" }),
+  arrow("atrace", 920, 390, [[0, 0], [-50, -110]], PURPLE, { strokeStyle: "dashed" }),
+  arrow("astream", 750, 310, [[0, 0], [0, 60]], PURPLE, { strokeStyle: "dashed" }),
+  box("valid", 1230, 370, 250, 150, ...CORE, "Validate + diff\nAST guard, syntax\ndifflib unified diff", 18),
+  arrow("aval", 1180, 445, [[0, 0], [50, 0]], PURPLE),
+
+  text("tdp", 630, 640, "DATA PLANE (HTTP, bidirectional)", 20, "#2563eb"),
+  box("icpt", 630, 700, 270, 170, ...CORE, "POST /api/v1/intercept\n{project_id, user_id,\nhook_name, payload}", 18),
+  arrow("areq", 490, 750, [[0, 0], [140, 0]], BLUE, { label: { text: "intercept", fontSize: 16 } }),
+  arrow("aresp", 630, 820, [[0, 0], [-140, 0]], BLUE, { strokeStyle: "dashed", label: { text: "payload'", fontSize: 16 } }),
+  box("run", 950, 700, 310, 170, ...CORE, "Hook runner\nresolve (project, user, hook)\nscoped exec -> payload'", 18),
+  arrow("arun", 900, 785, [[0, 0], [50, 0]], BLUE),
+  arrow("actx", 1105, 870, [[0, 0], [0, 60], [-615, 60]], AMBER, { strokeWidth: 3, startArrowhead: "arrow", label: { text: "Context Fetch (DB/API Access)", fontSize: 18 } }),
+  text("tnocred", 630, 960, "Core never holds DB credentials:\nhooks ask the SDK, the client app answers.", 18, "#92400e"),
+
+  box("virt", 630, 1080, 850, 190, "#eebefa", PINK,
+    "Virtual endpoints / App extension  (extends + super())\n" +
+    "GET /api/v1/x/{project}/{user}/{feature}   e.g. debt-chart\n" +
+    "hook calls super(): existing client APIs via the SDK,\n" +
+    "combines them, returns a new composite feature.\n" +
+    "No new routes in the client base code.", 18),
+  arrow("avrun", 1200, 1080, [[0, 0], [0, -210]], PINK, { label: { text: "runs hook", fontSize: 16 } }),
+  arrow("acall", 30, 445, [[0, 0], [-20, 0], [-20, 730], [600, 730]], PINK, { label: { text: "new feature", fontSize: 16 } }),
+
+  // WORKSPACES
+  zone("zw", 1580, 80, 380, 1220, "#d3f9d8", GREEN),
+  text("zwt", 1600, 92, "WORKSPACES (filesystem)", 24, "#15803d"),
+  { type: "rectangle", id: "fs", x: 1600, y: 370, width: 340, height: 500, backgroundColor: "#c3fae8", fillStyle: "solid", strokeColor: GREEN, roundness: { type: 3 } },
+  text("fst", 1620, 390,
+    "/workspaces/\n" +
+    "  clinic_crm/\n" +
+    "    base/\n" +
+    "      on_invoice_created.py\n" +
+    "    user_42/\n" +
+    "      on_invoice_created.py\n" +
+    "      x/debt_chart.py\n" +
+    "      traces.jsonl\n" +
+    "    user_7/\n" +
+    "      (empty: uses base)", 18, "#14532d", { fontFamily: 3 }),
+  arrow("awrite", 1480, 445, [[0, 0], [120, 0]], PURPLE, { label: { text: "write", fontSize: 16 } }),
+  arrow("aload", 1600, 785, [[0, 0], [-340, 0]], BLUE, { label: { text: "load user hook, else base", fontSize: 16 } }),
+
+  text("legend", 20, 1340,
+    "Blue: data plane    Amber: context fetch (core -> SDK)    Pink: virtual endpoints    Purple: control plane    Red: fail path    Green: workspaces", 20, "#555555"),
+];
+
+const { Excalidraw, convertToExcalidrawElements } = ExcalidrawLib;
+ReactDOM.createRoot(document.getElementById("app")).render(
+  React.createElement(Excalidraw, {
+    initialData: { elements: convertToExcalidrawElements(skeleton), scrollToContent: true },
+  })
+);
+</script>
+</body>
+</html>
