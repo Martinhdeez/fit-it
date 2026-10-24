@@ -17,6 +17,12 @@ ROUTE_RE = re.compile(r"^(GET|POST|PUT|PATCH|DELETE) (/\S*)$")
 
 BANNED_NAMES = {"eval", "exec", "compile", "open", "globals", "locals", "vars", "getattr", "setattr",
                 "delattr", "input", "breakpoint", "type", "object", "print"}
+# Generators, coroutines, frames, tracebacks and code objects expose interpreter internals through these
+# prefixes. Blocking the attributes is enough to keep generator expressions and `yield`: a generator only
+# reaches its frame through them. `format`/`format_map` read attributes named inside the string, which the
+# AST never sees; `mro` lists base classes.
+FRAME_PREFIXES = ("f_", "gi_", "cr_", "ag_", "tb_", "co_")
+BANNED_ATTRS = {"format", "format_map", "mro"}
 SAFE_BUILTINS = {
     f.__name__: f
     for f in (len, sum, min, max, abs, round, sorted, reversed, any, all, enumerate, zip, range, map, filter,
@@ -53,8 +59,9 @@ class Ctx:
 
 
 def check_code(code: str) -> tuple[str, str]:
-    # ponytail: AST deny-list + allow-listed builtins, not a real sandbox: no memory limit, and
-    # str.format can read attributes. Upgrade path: run hooks in a subprocess with resource limits (ADR 0004).
+    # ponytail: AST deny-list + allow-listed builtins, not a real sandbox: a single long C call
+    # (sum(range(10**12))) is not interrupted and memory is unbounded. Upgrade path: run hooks in a
+    # killable subprocess with resource limits (ADR 0020).
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
@@ -63,8 +70,14 @@ def check_code(code: str) -> tuple[str, str]:
         line = getattr(node, "lineno", "?")
         if isinstance(node, (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal)):
             raise ValueError(f"line {line}: import, global and nonlocal are not allowed")
-        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+        # try/with could swallow the time limit (CPython drops a tracer that raised); async needs no hook.
+        if isinstance(node, (ast.Try, ast.TryStar, ast.With, ast.AsyncWith, ast.AsyncFunctionDef, ast.AsyncFor,
+                             ast.Await)):
+            raise ValueError(f"line {line}: try, with and async are not allowed")
+        if isinstance(node, ast.Attribute) and (node.attr.startswith("_") or node.attr.startswith(FRAME_PREFIXES)):
             raise ValueError(f"line {line}: private attribute '{node.attr}' is not allowed")
+        if isinstance(node, ast.Attribute) and node.attr in BANNED_ATTRS:
+            raise ValueError(f"line {line}: attribute '{node.attr}' is not allowed")
         # Name.id, arg/keyword.arg, def/class/except-as .name
         name = getattr(node, "id", None) or getattr(node, "arg", None) or getattr(node, "name", None)
         if isinstance(name, str) and (name.startswith("_") or name in BANNED_NAMES):
@@ -223,9 +236,9 @@ def _run(hook: str | None, code: str, data, ctx):
     deadline = time.monotonic() + timeout_ms / 1000
 
     # ponytail: the deadline is checked between Python events only, so a single long C call
-    # (sum(range(10**12))) is not interrupted, and CPython drops a tracer once it raises, so a loop in a
-    # bare `except:` or `finally:` that runs after the breach is not stopped either. Upgrade path: run
-    # hooks in a killable subprocess (ADR 0020).
+    # (sum(range(10**12))) is not interrupted. CPython drops a tracer once it raises; the guard bans
+    # try/with so hook code cannot catch the breach and keep looping. Upgrade path: run hooks in a
+    # killable subprocess (ADR 0020).
     def tracer(frame, event, arg):
         if time.monotonic() > deadline:
             raise _TimeLimit
