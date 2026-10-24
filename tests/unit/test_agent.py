@@ -590,4 +590,29 @@ def test_instructions_say_extend_the_route_hook():
         return ModelResponse(parts=[TextPart("ok")])
 
     chat(FunctionModel(fn), "hi")
-    assert "already runs on the same route" in seen[0] and "read_hook" in seen[0]
+    assert "always read_hook it" in seen[0] and "unrelated change goes in a new hook" in seen[0]
+    assert "language of the user's latest message" in seen[0]
+
+
+class GoneSocket:
+    """A client that sends one message and then disconnects: every send fails, the next receive too."""
+    client_state = agent.WebSocketState.CONNECTED
+
+    def __init__(self):
+        self.inbox, self.sends = [{"type": "message", "text": "hi"}], 0
+
+    async def receive_json(self):
+        if not self.inbox:
+            raise agent.WebSocketDisconnect(1000)
+        return self.inbox.pop()
+
+    async def send_json(self, data):
+        self.sends += 1
+        raise agent.WebSocketDisconnect(1006)
+
+
+def test_client_disconnect_mid_turn_stops_quietly():
+    ws = GoneSocket()
+    with agent.agent.override(model=scripted(("list_hooks", {}), "ok")):
+        asyncio.run(agent.handle_ws(ws, "alice", Api()))
+    assert ws.sends == 1 and not agent._busy
