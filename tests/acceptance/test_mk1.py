@@ -142,7 +142,7 @@ EXPECTED_COLUMNS = {
     },
     "messages": {
         "id": ("bigint", False), "user_id": ("text", False), "turn": ("jsonb", False),
-        "created_at": ("timestamp with time zone", False),
+        "created_at": ("timestamp with time zone", False), "conversation_id": ("text", False),
     },
     "features": {
         "id": ("bigint", False), "owner_id": ("text", False), "hook_name": ("text", False), "title": ("text", False),
