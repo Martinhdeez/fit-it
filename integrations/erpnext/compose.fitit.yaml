@@ -1,0 +1,21 @@
+# Overlay on the root compose.yaml: the Fit-it core proxies the ERPNext sandbox instead of the demo app.
+# Usage (from the repository root, after integrations/erpnext/bootstrap.sh):
+#   docker compose -f compose.yaml -f integrations/erpnext/compose.fitit.yaml up -d --build core
+# Paths are relative to the repository root (the first compose file's directory).
+services:
+  core:
+    environment:
+      - BASE_URL=http://frontend:8080
+      - FITIT_USER_PATH=/api/method/frappe.auth.get_logged_user
+      - FITIT_USER_FIELD=message
+      - FITIT_ANONYMOUS_USERS=Guest
+      - FITIT_TRACE_ADMINS=Administrator
+      - FITIT_OPENAPI_FILE=/erpnext/openapi.json
+    volumes:
+      - ./integrations/erpnext/openapi.json:/erpnext/openapi.json:ro
+    networks: [default, erpnext]
+
+networks:
+  erpnext:
+    name: ${ERPNEXT_PROJECT_NAME:-fitit-erpnext}_frappe_network
+    external: true

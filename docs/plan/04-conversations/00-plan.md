@@ -66,6 +66,8 @@ TR1 (Álvaro) runs alongside, against `trace-events.md`, which gains `conversati
 | [embed-widget.md](../../specs/embed-widget.md) | v3 → v4 | — (a widget without conversations keeps working) |
 | [trace-events.md](../../specs/trace-events.md) | v1, minor additions | — |
 
+REQ-TR1-2, clarified on 2026-10-24: every event accepted while the sink is open and its queue has room is recorded and can be read back in order. Events refused because the queue is full or the sink is closed are counted in `diagnostics()["dropped"]` and are outside that guarantee.
+
 ## Out of scope
 
 Manual reordering of hooks. A route returning a conversation's past messages, renaming conversations, a `conversations` table. Queuing messages for a busy conversation. Expected-version checks on undo, toggle and delete. Chain dry run for fork. Moving the busy set and the rate limit to Postgres.

@@ -517,6 +517,9 @@ def _fill_span(span, record: dict[str, Any]) -> None:
     tool = record.get("tool")
     if isinstance(tool, str) and tool:
         span.set_attribute("fitit.tool", tool)
+    conversation = record.get("conversation")
+    if isinstance(conversation, str) and conversation and len(conversation) <= 100:
+        span.set_attribute("fitit.conversation", conversation)
     if isinstance(record.get("enabled"), bool):
         span.set_attribute("fitit.enabled", record["enabled"])
     if isinstance(record.get("hooks"), list):

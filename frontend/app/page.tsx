@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   acceptUpdate,
   ApiError,
+  conversationMessages,
   deleteHook,
   errorText,
   featureKey,
@@ -58,6 +59,7 @@ type ChatWindow = {
 type WindowRuntime = {
   socket: WebSocket | null;
   savedThisTurn: boolean;
+  historyLoaded: boolean;
 };
 
 function windowKey(conversationId: string | null): string {
@@ -82,7 +84,7 @@ function chatLabel(chat: ChatWindow): string {
 
 const SIGN_IN = "Sign in to the app first";
 
-const SUGGESTIONS = [
+const FALLBACK_SUGGESTIONS = [
   "Apply a 15% discount to invoices issued on a Friday",
   "Hide the phone number of patients who owe money",
   "Give me a page with total unpaid debt per doctor",
@@ -190,6 +192,7 @@ export default function Page() {
   const [chatsOpen, setChatsOpen] = useState(false);
   const [sheet, setSheet] = useState<null | "features" | "market">(null);
   const [features, setFeatures] = useState<Feature[]>([]);
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [featuresError, setFeaturesError] = useState("");
   const [featuresLoaded, setFeaturesLoaded] = useState(false);
   const [pendingFeature, setPendingFeature] = useState("");
@@ -227,7 +230,7 @@ export default function Page() {
   function runtimeFor(key: string): WindowRuntime {
     const found = runtime.current.get(key);
     if (found) return found;
-    const created: WindowRuntime = { socket: null, savedThisTurn: false };
+    const created: WindowRuntime = { socket: null, savedThisTurn: false, historyLoaded: false };
     runtime.current.set(key, created);
     return created;
   }
@@ -390,9 +393,26 @@ export default function Page() {
   }
   onEventRef.current = onEvent;
 
+  // Show the turns the server stored for this conversation (page load, history list); server data wins over sessionStorage.
+  async function loadMessages(key: string, conversationId: string | null) {
+    const before = windowsRef.current.find((chat) => chat.key === key)?.items;
+    try {
+      const past = await conversationMessages(conversationId ?? "default");
+      if (past.length === 0) return;
+      const items: Item[] = past.map((m) => (m.role === "user" ? { kind: "prompt", text: m.text } : { kind: "answer", text: m.text }));
+      patch(key, (chat) => (chat.items === before && !chat.busy ? { ...chat, items } : chat));
+    } catch (error) {
+      if (error instanceof SignedOut) setSignedOut(true);
+    }
+  }
+
   function connectWindow(key: string, conversationId: string | null) {
     if (signedOutRef.current) return;
     const slot = runtimeFor(key);
+    if (!slot.historyLoaded) {
+      slot.historyLoaded = true;
+      void loadMessages(key, conversationId);
+    }
     const current = slot.socket;
     if (current && current.readyState <= WebSocket.OPEN) return;
 
@@ -413,6 +433,8 @@ export default function Page() {
       slot.socket = null;
       patch(key, (chat) => ({ ...chat, busy: false, connection: "lost" }));
       if (close.code === UNAUTHENTICATED) setSignedOut(true);
+      // The core restarts or the network blips: retry, except for closes that a retry cannot fix (4400, 4403).
+      else if (close.code !== 4400 && close.code !== 4403) setTimeout(() => connectWindow(key, conversationId), 2000);
     });
   }
 
@@ -425,6 +447,11 @@ export default function Page() {
     if (size) resizeTo(size, false);
     setOpen(true);
     void loadFeatures();
+    if (!suggestions) {
+      fetch("/fitit/suggestions")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then(setSuggestions, () => setSuggestions(FALLBACK_SUGGESTIONS));
+    }
     if (signedOutRef.current) return;
     for (const chat of windowsRef.current) connectWindow(chat.key, chat.conversationId);
     void refreshConversations();
@@ -709,7 +736,7 @@ export default function Page() {
     : active.connection === "connecting"
       ? "Connecting…"
       : active.connection === "lost"
-        ? "Connection lost. Close and reopen Fit-it to retry."
+        ? "Connection lost. Reconnecting…"
         : transcribingHere
           ? "Transcribing…"
           : micErrorKey === active.key
@@ -1012,7 +1039,7 @@ export default function Page() {
               <h2>What should this app do for you?</h2>
               <p>Describe a change in plain words. Only you will see it.</p>
               <div className="suggestions">
-                {SUGGESTIONS.map((text) => (
+                {(suggestions ?? FALLBACK_SUGGESTIONS).map((text) => (
                   <button type="button" key={text} disabled={locked} onClick={() => pickSuggestion(text)}>
                     {text}
                   </button>

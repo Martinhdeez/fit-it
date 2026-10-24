@@ -21,6 +21,7 @@ services:
       - FITIT_HOOK_TIMEOUT_MS
       - FITIT_HOOK_MAX_BYTES
       - FITIT_AGENT_MESSAGES_PER_HOUR
+      - FITIT_TRACE_ADMINS
       - BASE_URL=http://demo:8001
       # Development-only default password; set POSTGRES_PASSWORD in the shell elsewhere (ADR 0017).
       - DATABASE_URL=postgresql://fitit:${POSTGRES_PASSWORD:-fitit}@postgres:5432/fitit

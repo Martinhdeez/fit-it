@@ -35,6 +35,20 @@ How to work:
   change.
 - write_hook validates and dry-runs the code. If it is rejected, read the reason, fix the code and call it again.
 - When the user asks to undo or go back, call undo_hook with the hook's name.
+- Prefer acting with sensible defaults over asking. Look names up in the data (get_endpoint, ctx.api.get) instead of
+  asking the user for them.
+- When the app is ERPNext and the user wants to change or filter an EXISTING card or chart of the overview, change
+  the FITIT Overview routes (get_result, getdoc, dashboard_chart.get); ctx.request tells which card or chart a
+  response belongs to.
+- When the user asks for a NEW card, KPI or widget, write a hook on GET /x/<name> that returns {"card": {"title": str,
+  "value": str or number, "subtitle": str, "format": "currency"|"number"|"text", "currency": str, "rows": [{"label":
+  str, "value": str or number}]}} (only title and value required; keep values short). It shows up on the page
+  automatically next to the app's own cards.
+- When the user asks for a NEW chart, write a hook on GET /x/<name> that returns {"chart": {"title": str, "type":
+  "bar"|"line"|"pie"|"donut"|"percentage", "labels": [str], "datasets": [{"name": str, "values": [number]}],
+  "subtitle": str}}; it also shows up on the page automatically. Changing an EXISTING overview chart stays on
+  dashboard_chart.get.
+- Name helper functions without a leading underscore.
 - Reply in the language of the user's latest message, in at most three sentences.
 
 Marketplace. Other users of the app publish their hooks as features (named @<id>) that this user can subscribe to.
@@ -68,8 +82,11 @@ def run(data, ctx):
   JSON (path starts with /; raises on non-2xx; no other HTTP method exists). ctx.log(*values) writes a trace line.
 - Not allowed: import, from ... import, global, nonlocal, any name or attribute starting with _, and the names
   eval exec compile open globals locals vars getattr setattr delattr input breakpoint type object print.
+- Also not allowed: try/except/finally, with, async/await, and the attributes format, format_map, mro and any
+  attribute starting with f_, gi_, cr_, ag_, tb_ or co_. Use f-strings, dict.get, isinstance and if checks instead.
+- For the current date or time use date.today() and datetime.now(); never call the app for it.
 - Only these names exist: len sum min max abs round sorted reversed any all enumerate zip range map filter str int
-  float bool list dict set tuple isinstance, plus date, datetime, timedelta (from the datetime module) and math.
+  float bool list dict set tuple isinstance next iter, plus date, datetime, timedelta (from the datetime module) and math.
 - If the hook raises, the user's request fails closed, so handle missing keys and None values.
 """
 
@@ -206,12 +223,34 @@ def list_conversations(user: str) -> list[dict]:
     return result
 
 
+def conversation_messages(user: str, conversation: str) -> list[dict]:
+    """The conversation's prompts and text answers, oldest first, for the widget to show again."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT turn FROM messages WHERE user_id = %s AND conversation_id = %s ORDER BY id",
+                            (user, conversation)).fetchall()
+    result = []
+    for (turn,) in rows:
+        for m in turn:
+            for p in m.get("parts", []):
+                kind, content = p.get("part_kind"), p.get("content")
+                if kind == "user-prompt" and isinstance(content, str):
+                    result.append({"role": "user", "text": content})
+                elif kind == "text" and m.get("kind") == "response" and content:
+                    result.append({"role": "assistant", "text": content})
+    return result
+
+
 @agent.tool
 def list_endpoints(ctx: RunContext[Deps]) -> str:
     """List the app's endpoints, one `METHOD path: summary` line per operation."""
-    spec = ctx.deps.api.get("/openapi.json")
+    file = os.environ.get("FITIT_OPENAPI_FILE")
+    if file:
+        with open(file) as f:
+            spec = json.load(f)
+    else:
+        spec = ctx.deps.api.get("/openapi.json")
     return "\n".join(
-        f"{method.upper()} {path}: {op.get('summary', '')}"
+        f"{method.upper()} {path}: {op.get('summary', '')}" + (f" ({op['description']})" if op.get("description") else "")
         for path, ops in spec.get("paths", {}).items()
         for method, op in ops.items()
         if isinstance(op, dict))

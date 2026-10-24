@@ -172,3 +172,12 @@ def test_v2_messages_table_gains_the_column(database):
     with psycopg.connect(database) as conn:
         assert conn.execute("SELECT user_id, conversation_id FROM messages ORDER BY id").fetchall() == [
             ("alice", "default"), ("bob", "default")]
+
+
+def test_conversation_messages(database):
+    assert agent.conversation_messages("alice", "a") == []
+    chat(recording([]), "alice", "one", "two", conversation="a")
+    chat(recording([]), "bob", "bob's", conversation="a")
+    assert agent.conversation_messages("alice", "a") == [
+        {"role": "user", "text": "one"}, {"role": "assistant", "text": "answer to one"},
+        {"role": "user", "text": "two"}, {"role": "assistant", "text": "answer to two"}]

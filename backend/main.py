@@ -3,7 +3,7 @@ import json
 import os
 import re
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -59,13 +59,16 @@ class Api:
 
 
 def resolve_user(cookie: str) -> str | None:
-    # ponytail: one /api/me call per request; cache by session cookie if latency matters (ADR 0006)
+    # ponytail: one user call per request; cache by session cookie if latency matters (ADR 0006)
+    path = os.environ.get("FITIT_USER_PATH", "/api/me")
+    field = os.environ.get("FITIT_USER_FIELD", "id")
+    anonymous = os.environ.get("FITIT_ANONYMOUS_USERS", "").split(",")  # ADR 0027
     try:
-        r = httpx.get(base_url() + "/api/me", headers={"cookie": cookie})
-        user = r.json()["id"] if r.status_code == 200 else None
+        r = httpx.get(base_url() + path, headers={"cookie": cookie})
+        user = r.json()[field] if r.status_code == 200 else None
     except Exception:
         return None
-    return user if isinstance(user, str) else None
+    return user if isinstance(user, str) and user not in anonymous else None
 
 
 def route_of(name: str, entries: list[dict]):
@@ -77,12 +80,29 @@ def route_of(name: str, entries: list[dict]):
         return None
 
 
-def apply_hooks(user, cookie, method, path, data):
+def request_info(method: str, path: str, query: str, body: bytes) -> dict:
+    """`ctx.request`: the proxied request, with a JSON or form body parsed and JSON-looking form values decoded."""
+    form = {}
+    try:
+        form = json.loads(body) if body[:1] in (b"{", b"[") else dict(parse_qsl(body.decode()))
+        if isinstance(form, dict):
+            for k, v in form.items():
+                if isinstance(v, str) and v[:1] in ("{", "["):
+                    try:
+                        form[k] = json.loads(v)
+                    except ValueError:
+                        pass
+    except (ValueError, UnicodeDecodeError):
+        form = {}
+    return {"method": method, "path": path, "query": dict(parse_qsl(query)), "form": form}
+
+
+def apply_hooks(user, cookie, method, path, data, request=None):
     """Runs the user's subscribed features, then their own hooks (ADR 0023).
     Returns (response, names): the hooked JSON, a 502 on HookError, or None if nothing matched."""
     features = marketplace.active(user)
     try:
-        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie)), features)
+        result, applied = hooks.run_hooks(user, method, path, data, hooks.Ctx(user, Api(cookie), request), features)
     except hooks.HookError as e:
         route = route_of(e.hook, features if e.hook.startswith("@") else hooks.list_hooks(user))
         trace.emit("hook.failed", user=user, hook=e.hook, route=route, error=str(e))
@@ -131,6 +151,32 @@ def embed_js():
 
 if UI.is_dir():  # not built: /fitit/ui/ falls through to the core-namespace 404
     app.mount("/fitit/ui", StaticFiles(directory=UI, html=True))
+
+
+@app.get("/fitit/trace/events")
+def trace_events(request: Request, after: str = "0", limit: str = "500"):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    try:
+        after_n, limit_n = int(after), int(limit)
+        if after_n < 0 or not 0 < limit_n <= 1000:
+            raise ValueError("after must be >= 0 and limit in 1..1000")
+    except ValueError as e:
+        return JSONResponse({"error": "invalid", "detail": str(e)}, 422)
+    records = trace.read_events(after=after_n, limit=limit_n)
+    admin = user in os.environ.get("FITIT_TRACE_ADMINS", "").split(",")
+    return {"events": [r for r in records if admin or r.get("user") == user],
+            "next": records[-1]["seq"] if records else after_n, "admin": admin}
+
+
+@app.get("/traceability")
+@app.get("/traceability/")
+def traceability():
+    for page in (UI / "traceability" / "index.html", UI / "traceability.html"):
+        if page.is_file():
+            return Response(page.read_bytes(), media_type="text/html")
+    return not_found()
 
 
 @app.get("/fitit/hooks")
@@ -204,6 +250,35 @@ def list_conversations(request: Request):
         return unauthenticated()
     from agent import list_conversations
     return list_conversations(user)
+
+
+@app.get("/fitit/conversations/{conversation}/messages")
+def conversation_messages(conversation: str, request: Request):
+    user = resolve_user(request.headers.get("cookie", ""))
+    if not user:
+        return unauthenticated()
+    if not valid_conversation(conversation):
+        return JSONResponse({"error": "invalid", "detail": "conversation must match [A-Za-z0-9_-]{1,64}"}, 422)
+    from agent import conversation_messages
+    return conversation_messages(user, conversation)
+
+
+SUGGESTIONS = [
+    "Apply a 15% discount to invoices issued on a Friday",
+    "Hide the phone number of patients who owe money",
+    "Give me a page with total unpaid debt per doctor",
+]
+
+
+@app.get("/fitit/suggestions")
+def suggestions():
+    file = os.environ.get("FITIT_OPENAPI_FILE")
+    if file:
+        with open(file) as f:
+            custom = json.load(f).get("info", {}).get("x-fitit-suggestions")
+        if custom:
+            return custom
+    return SUGGESTIONS
 
 
 @app.get("/fitit/features")
@@ -399,7 +474,8 @@ def forward(request: Request, body: bytes) -> Response:
     content = up.content
     content_type = up.headers.get("content-type", "")
     if user and 200 <= up.status_code < 300 and content_type.split(";")[0].strip() == "application/json":
-        hooked, applied = apply_hooks(user, cookie, method, path, up.json())
+        info = request_info(method, path, request.url.query, body)
+        hooked, applied = apply_hooks(user, cookie, method, path, up.json(), info)
         if hooked:
             return finish(hooked, user, method, path, start, applied)
     if user and content_type.startswith("text/html"):

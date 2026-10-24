@@ -205,6 +205,17 @@ export async function clearHistory(conversationId?: string): Promise<void> {
   await request(path, { method: "DELETE" });
 }
 
+export type PastMessage = { role: "user" | "assistant"; text: string };
+
+export async function conversationMessages(conversationId: string): Promise<PastMessage[]> {
+  const response = await request(`/fitit/conversations/${encodeURIComponent(conversationId)}/messages`);
+  const body: unknown = await response.json().catch(() => null);
+  if (!Array.isArray(body)) return [];
+  return body.filter(
+    (m): m is PastMessage => isRecord(m) && (m.role === "user" || m.role === "assistant") && typeof m.text === "string",
+  );
+}
+
 const TURN_KEYS = ["turn_count", "turns", "turnCount"];
 const ACTIVITY_KEYS = ["updated_at", "last_activity", "lastActivity", "updatedAt", "activity_at", "last_active_at"];
 

@@ -26,8 +26,19 @@ BANNED_ATTRS = {"format", "format_map", "mro"}
 SAFE_BUILTINS = {
     f.__name__: f
     for f in (len, sum, min, max, abs, round, sorted, reversed, any, all, enumerate, zip, range, map, filter,
-              str, int, float, bool, list, dict, set, tuple, isinstance)
+              str, int, float, bool, list, dict, set, tuple, isinstance, next, iter)
 }
+
+
+def _import(name, *args, **kwargs):
+    # datetime.strptime and strftime import _strptime and time through the caller's builtins; hook code cannot
+    # name __import__ (guard), so only the C code of datetime reaches this.
+    if name not in ("_strptime", "time"):
+        raise ImportError(f"import of {name} is not allowed")
+    return __import__(name, *args, **kwargs)
+
+
+SAFE_BUILTINS["__import__"] = _import
 SCOPE_VALUES = {"date": date, "datetime": datetime, "timedelta": timedelta, "math": math}
 
 
@@ -49,9 +60,10 @@ class _Api:
 
 
 class Ctx:
-    def __init__(self, user: str, api):
+    def __init__(self, user: str, api, request: dict | None = None):
         self.user = user
         self.api = _Api(api)  # only `get` is reachable from a hook
+        self.request = request or {}  # method, path, query, form of the proxied request; {} in dry runs
         self.logs: list[str] = []
 
     def log(self, *values):

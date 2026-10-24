@@ -396,3 +396,45 @@ def test_forwarding_headers_and_hooked_cache_control(monkeypatch):
     assert not {"x-forwarded-host", "x-forwarded-proto", "forwarded", "te", "upgrade"} & set(seen)
     write("gerente", "h", hook("GET /api/invoices"))
     assert client().get("/api/invoices").headers["cache-control"] == "private, no-store"
+
+
+def test_resolve_user_configurable_path_field_and_anonymous(monkeypatch):
+    # ADR 0027: ERPNext answers {"message": "<user>"}, and "Guest" when signed out
+    monkeypatch.setenv("FITIT_USER_PATH", "/api/method/frappe.auth.get_logged_user")
+    monkeypatch.setenv("FITIT_USER_FIELD", "message")
+    monkeypatch.setenv("FITIT_ANONYMOUS_USERS", "Guest")
+    seen = []
+
+    def fake_get(url, headers):
+        seen.append(url)
+        return httpx.Response(200, json={"message": headers["cookie"]})
+
+    monkeypatch.setattr(main.httpx, "get", fake_get)
+    assert main.resolve_user("ana@fitit.test") == "ana@fitit.test"
+    assert main.resolve_user("Guest") is None
+    assert seen[0] == "http://demo:8001/api/method/frappe.auth.get_logged_user"
+
+
+def test_resolve_user_defaults_unchanged():
+    assert main.resolve_user("session=gerente") == "gerente"
+    assert main.resolve_user("") is None
+
+
+def test_request_info_parses_form_and_json_bodies():
+    form = main.request_info("POST", "/api/m", "a=1", b"doc=%7B%22name%22%3A%22FITIT+Sales+revenue%22%7D&x=%5Bbad")
+    assert form == {"method": "POST", "path": "/api/m", "query": {"a": "1"},
+                    "form": {"doc": {"name": "FITIT Sales revenue"}, "x": "[bad"}}
+    assert main.request_info("POST", "/p", "", b'{"chart_name": "C"}')["form"] == {"chart_name": "C"}
+    assert main.request_info("GET", "/p", "", b"")["form"] == {}
+    assert main.request_info("POST", "/p", "", b"\xff")["form"] == {}
+
+
+def test_suggestions_come_from_the_openapi_file_or_the_clinic_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("FITIT_OPENAPI_FILE", raising=False)
+    assert client().get("/fitit/suggestions").json() == main.SUGGESTIONS
+    spec = tmp_path / "openapi.json"
+    spec.write_text('{"info": {"x-fitit-suggestions": ["a", "b", "c"]}}')
+    monkeypatch.setenv("FITIT_OPENAPI_FILE", str(spec))
+    assert client().get("/fitit/suggestions").json() == ["a", "b", "c"]
+    spec.write_text('{"info": {}}')
+    assert client().get("/fitit/suggestions").json() == main.SUGGESTIONS

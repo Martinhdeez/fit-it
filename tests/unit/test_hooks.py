@@ -424,3 +424,31 @@ def test_chain_dry_run_failures(database):
     with pytest.raises(hooks.HookError) as e:
         hooks.dry_run("u1", mark("C"), data, api, name="a")
     assert e.value.hook == "z_total"
+
+
+def test_strptime_works_in_hooks():
+    code = 'ROUTE = "GET /api/x"\ndef run(data, ctx):\n    return [datetime.strptime("2026-10-24", "%Y-%m-%d").weekday(), len(date.today().strftime("%Y-%m-%d"))]\n'
+    hooks.check_code(code)
+    scope = {"__builtins__": hooks.SAFE_BUILTINS, **hooks.SCOPE_VALUES}
+    exec(compile(code, "<hook>", "exec"), scope)
+    assert scope["run"](None, None) == [5, 10]
+    try:
+        hooks.SAFE_BUILTINS["__import__"]("os")
+        assert False, "os import allowed"
+    except ImportError:
+        pass
+
+
+def test_hook_reads_ctx_request():
+    code = hook("POST /m", "return data * 2 if ctx.request.get('form', {}).get('doc', {}).get('name') == 'A' else data")
+    hooks.save_hook("u1", "double_a", code)
+    run = lambda req: hooks.run_hooks("u1", "POST", "/m", 3, hooks.Ctx("u1", Api(), req))[0]
+    assert (run({"form": {"doc": {"name": "A"}}}), run({"form": {"doc": {"name": "B"}}}), run(None)) == (6, 3, 3)
+
+
+def test_next_and_iter_are_allowed():
+    code = 'ROUTE = "GET /api/x"\ndef run(data, ctx):\n    return next(iter({"EUR": 5}.items()))\n'
+    hooks.check_code(code)
+    scope = {"__builtins__": hooks.SAFE_BUILTINS, **hooks.SCOPE_VALUES}
+    exec(compile(code, "<hook>", "exec"), scope)
+    assert scope["run"](None, None) == ("EUR", 5)
