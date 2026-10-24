@@ -13,6 +13,7 @@ Iteration 04. The v3 text is in git history (`git show 5c656ce:docs/specs/proxy.
 | 3 | `DELETE /fitit/history` takes an optional `conversation` query parameter; without it, all of the user's conversations are cleared, as in v3 ("Core routes"). | No | CV1 |
 | 4 | New route `POST /fitit/transcribe`. The core sends the audio to OpenAI (`gpt-4o-mini-transcribe`) with `OPENAI_API_KEY`. | No (addition) | widget |
 | 5 | Hardening: cross-origin non-GET `/fitit/*` is `403` and a cross-origin `/fitit/ws` closes with `4403` ("Origin check"); more request headers dropped and `x-forwarded-for` set ("Forwarding"); hooked responses carry `cache-control: private, no-store`; `/fitit/transcribe` caps the streamed body and shares the agent rate limit. | No (same-origin and non-browser clients unaffected) | hardening |
+| 6 | New routes `GET /fitit/trace/events` and `GET /traceability` ("Core routes"); new variable `FITIT_TRACE_ADMINS` ("Configuration"). `/traceability` is reserved by the core and never proxied. | No (addition) | traceability |
 
 Changes in v3 (iteration 03): subscribed features in the chain, `GET /fitit/features`, `/fitit/marketplace/...`, `DELETE /fitit/hooks/{name}` unpublishes.
 
@@ -27,6 +28,7 @@ Changes in v3 (iteration 03): subscribed features in the chain, `GET /fitit/feat
 | `FITIT_HOOK_TIMEOUT_MS` | Time limit of one hook run ([hook contract](hook-contract.md#limits)) | `2000` |
 | `FITIT_HOOK_MAX_BYTES` | Maximum size of one hook's output, as UTF-8 JSON | `1000000` |
 | `FITIT_AGENT_MESSAGES_PER_HOUR` | Agent messages per user per sliding hour ([agent spec](agent.md#rate-limit)) | `60` |
+| `FITIT_TRACE_ADMINS` | Comma-separated user ids that see every user's trace events in `GET /fitit/trace/events`. Demo app: e.g. `gerente`; the ERPNext overlay sets `Administrator`. | empty (each user sees only their own) |
 
 Model credentials, set only the one the chosen provider reads: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (plus `OPENAI_BASE_URL` for any OpenAI-compatible endpoint), `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `OLLAMA_BASE_URL`.
 
@@ -78,12 +80,14 @@ A non-GET request under `/fitit/` whose `Origin` header is present and whose hos
 
 ## Core routes
 
-All of them return `401` `{"error": "unauthenticated"}` for anonymous users, except the two static ones.
+All of them return `401` `{"error": "unauthenticated"}` for anonymous users, except the static ones (`/fitit/embed.js`, `/fitit/ui/*`, `/traceability`).
 
 | Route | Response |
 |---|---|
 | `GET /fitit/embed.js` | The widget loader ([embed widget spec](embed-widget.md)), `content-type: application/javascript`. No authentication needed. |
 | `GET /fitit/ui/*` | The widget UI static export from `backend/static/ui/`, `index.html` for directories. No authentication needed. `404` `{"error": "not_found"}` if not built. |
+| `GET /traceability` (and `/traceability/`) | The traceability page from the widget export (`backend/static/ui/traceability/index.html` or `traceability.html`), `content-type: text/html`. Reserved by the core, never proxied. No authentication needed (the events API enforces it). `404` `{"error": "not_found"}` if not built. |
+| `GET /fitit/trace/events?after=<int>&limit=<int>` | Trace journal records with `seq > after` ([trace events spec](trace-events.md)), `after` default `0`, `limit` default `500`, at most `1000`. `200` `{"events": [record as stored], "next": int, "admin": bool}`. Users in `FITIT_TRACE_ADMINS` get every record (`admin: true`); others only records whose `user` is theirs. `next` is the `seq` of the last record scanned, filtered or not (or `after` if none), so polling with `after=next` always advances. A non-integer or out-of-range `after`/`limit` is `422` `{"error": "invalid", "detail": str}`. |
 | `GET /fitit/hooks` | `200` `[{"name": str, "route": str, "enabled": bool, "code": str}]`, sorted by name |
 | `POST /fitit/hooks/{name}/toggle` | `200` `{"name": str, "enabled": bool}` with the new state; `404` if the hook does not exist |
 | `DELETE /fitit/hooks/{name}` | `204`; `404` if the hook does not exist. A feature published from this hook becomes unpublished ([marketplace spec](marketplace.md#rules), rule 3). |
