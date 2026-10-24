@@ -21,7 +21,11 @@ import trace
 @asynccontextmanager
 async def lifespan(app):
     await run_in_threadpool(db.init)
-    yield
+    await run_in_threadpool(trace.startup)
+    try:
+        yield
+    finally:
+        await run_in_threadpool(trace.shutdown, 5000)
 
 
 app = FastAPI(lifespan=lifespan)

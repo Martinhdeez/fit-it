@@ -23,9 +23,11 @@ Hackathon prototype (GDG Coruña, October 2026). `backend/` holds the first iter
 
 ```bash
 export ANTHROPIC_API_KEY=...                            # in your shell, never in a file
-docker compose up --build                               # API on :8000
-docker compose run --rm core uv run python check.py     # self-check
+docker compose up --build                               # API :8000, Jaeger http://127.0.0.1:16686
+make check                                              # Docker tests, no model calls
 ```
+
+The audit journal and Jaeger view are in [docs/traceability.md](docs/traceability.md).
 
 ### Choosing the model
 
