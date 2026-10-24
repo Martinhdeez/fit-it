@@ -216,6 +216,25 @@ def test_pinned_versions_and_accept_update(events):
     error("up_to_date", 409, marketplace.accept_update, "sub", fid, Api())
 
 
+def test_subscribe_and_accept_update_dry_run_the_chain():
+    hooks.save_hook("sub", "zz", hook(body='return [r["id"] for r in data]'))
+    wrap = hook(body='return {"rows": data}')
+    breaking, fine = seed(name="w", code=wrap), seed(code=marker("A"))
+    e = error("dry_run_failed", 422, marketplace.subscribe, "sub", breaking, Api())
+    assert str(e).startswith("zz failed:")
+    assert counts()[2] == 0
+    hooks.toggle_hook("sub", "zz")
+    marketplace.subscribe("sub", breaking, Api())
+    marketplace.unsubscribe("sub", breaking)
+    hooks.toggle_hook("sub", "zz")
+
+    marketplace.subscribe("sub", fine, Api())
+    hooks.save_hook("owner", "h", wrap)
+    marketplace.publish("owner", "h", "T", "D")
+    assert "zz failed:" in str(error("dry_run_failed", 422, marketplace.accept_update, "sub", fine, Api()))
+    assert sql("SELECT version FROM subscriptions WHERE feature_id = %s", fine) == [(1,)]
+
+
 def test_unpublish(events):
     fid = seed()
     marketplace.subscribe("sub", fid, Api())
