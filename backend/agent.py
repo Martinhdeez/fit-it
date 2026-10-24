@@ -68,6 +68,8 @@ def run(data, ctx):
   JSON (path starts with /; raises on non-2xx; no other HTTP method exists). ctx.log(*values) writes a trace line.
 - Not allowed: import, from ... import, global, nonlocal, any name or attribute starting with _, and the names
   eval exec compile open globals locals vars getattr setattr delattr input breakpoint type object print.
+- Also not allowed: try/except/finally, with, async/await, and the attributes format, format_map, mro and any
+  attribute starting with f_, gi_, cr_, ag_, tb_ or co_. Use f-strings, dict.get, isinstance and if checks instead.
 - Only these names exist: len sum min max abs round sorted reversed any all enumerate zip range map filter str int
   float bool list dict set tuple isinstance, plus date, datetime, timedelta (from the datetime module) and math.
 - If the hook raises, the user's request fails closed, so handle missing keys and None values.
