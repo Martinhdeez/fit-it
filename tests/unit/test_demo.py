@@ -74,7 +74,7 @@ def test_invoices_have_dates_with_fridays():
 
 def test_openapi_lists_api_routes_with_summaries():
     paths = httpx.get(DEMO_URL + "/openapi.json").json()["paths"]
-    for path in ["/api/me", "/api/patients", "/api/patients/{patient_id}", "/api/invoices", "/api/appointments"]:
+    for path in ["/api/me", "/api/patients", "/api/patients/{id}", "/api/invoices", "/api/appointments"]:
         assert paths[path]["get"]["summary"]
     assert all(op["summary"] for ops in paths.values() for op in ops.values())
 
