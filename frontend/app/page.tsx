@@ -28,6 +28,45 @@ type Item =
 
 const SIGN_IN = "Sign in to the app first";
 
+const SUGGESTIONS = [
+  "Apply a 15% discount to invoices issued on a Friday",
+  "Hide the phone number of patients who owe money",
+  "Give me a page with total unpaid debt per doctor",
+];
+
+type Reply = Exclude<Item, { kind: "prompt" | "tool" }> | { kind: "tools"; names: string[] };
+
+type Turn = { prompt: string | null; replies: Reply[] };
+
+function toTurns(items: Item[]): Turn[] {
+  const turns: Turn[] = [];
+  for (const item of items) {
+    if (item.kind === "prompt") {
+      turns.push({ prompt: item.text, replies: [] });
+      continue;
+    }
+    if (turns.length === 0) turns.push({ prompt: null, replies: [] });
+    const replies = turns[turns.length - 1].replies;
+    const last = replies[replies.length - 1];
+    if (item.kind === "tool") {
+      if (last?.kind === "tools") last.names.push(item.name);
+      else replies.push({ kind: "tools", names: [item.name] });
+      continue;
+    }
+    replies.push(item);
+  }
+  return turns;
+}
+
+function Mark() {
+  return (
+    <svg className="mark" viewBox="0 0 20 20" aria-hidden="true">
+      <rect x="2.5" y="2.5" width="15" height="15" rx="5" />
+      <path d="M7 13.5V6.5h6M7 10h4.5" />
+    </svg>
+  );
+}
+
 type Size = { width: number; height: number };
 
 const SIZE_KEY = "fitit-panel-size";
@@ -226,7 +265,7 @@ export default function Page() {
     return (
       <main className="shell">
         <button type="button" className="launcher" aria-expanded={false} onClick={openPanel}>
-          <span className="launcher-mark" aria-hidden="true" />
+          <Mark />
           Fit-it
         </button>
       </main>
@@ -241,9 +280,14 @@ export default function Page() {
       ? "Connecting…"
       : connection === "lost"
         ? "Connection lost. Close and reopen Fit-it to retry."
-        : busy
-          ? "Working…"
-          : "";
+        : "";
+  const turns = toTurns(items);
+  const enabledCount = hooks.filter((hook) => hook.enabled).length;
+
+  function pickSuggestion(text: string) {
+    setDraft(text);
+    composerRef.current?.focus();
+  }
 
   return (
     <main className="shell">
@@ -296,9 +340,9 @@ export default function Page() {
           </svg>
         </button>
         <header className="panel-header">
-          <div>
+          <div className="title">
+            <Mark />
             <h1>Fit-it</h1>
-            <p>Change this app for you, in plain words.</p>
           </div>
           <button type="button" className="icon-button" aria-label="Close Fit-it" onClick={closePanel}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -308,68 +352,115 @@ export default function Page() {
         </header>
 
         <div className="transcript" role="log" aria-live="polite" aria-relevant="additions">
-          {items.length === 0 && !signedOut ? (
-            <p className="empty">Describe a change to this app. For example: 15% discount on Friday invoices.</p>
+          {turns.length === 0 && !signedOut ? (
+            <div className="welcome">
+              <h2>What should this app do for you?</h2>
+              <p>Describe a change in plain words. Only you will see it.</p>
+              <div className="suggestions">
+                {SUGGESTIONS.map((text) => (
+                  <button type="button" key={text} disabled={locked} onClick={() => pickSuggestion(text)}>
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : null}
-          {items.map((item, index) => {
-            switch (item.kind) {
-              case "prompt":
-                return (
-                  <p className="bubble user" key={index}>
-                    {item.text}
-                  </p>
-                );
-              case "tool":
-                return (
-                  <p className="tool" key={index}>
-                    → {item.name}
-                  </p>
-                );
-              case "saved":
-                return (
-                  <figure className="diff" key={index}>
-                    <figcaption>
-                      <span>{item.name}</span>
-                      <code>{item.route}</code>
-                    </figcaption>
-                    <pre>
-                      {item.diff.split("\n").map((line, lineIndex) => (
-                        <span className={diffLineClass(line)} key={lineIndex}>
-                          {line}
-                          {"\n"}
-                        </span>
-                      ))}
-                    </pre>
-                  </figure>
-                );
-              case "rejected":
-                return (
-                  <p className="error" key={index}>
-                    {item.name ? `${item.name}: ` : ""}
-                    {item.reason}
-                  </p>
-                );
-              case "answer":
-                return (
-                  <p className="bubble agent" key={index}>
-                    {item.text}
-                  </p>
-                );
-              case "error":
-                return (
-                  <p className="error" key={index}>
-                    {item.message}
-                  </p>
-                );
-            }
+          {turns.map((turn, turnIndex) => {
+            const live = busy && turnIndex === turns.length - 1;
+            return (
+              <div className="turn" key={turnIndex}>
+                {turn.prompt !== null ? <p className="user-message">{turn.prompt}</p> : null}
+                {turn.replies.length > 0 || live ? (
+                  <div className="reply">
+                    <Mark />
+                    <div className="reply-body">
+                      {turn.replies.map((reply, index) => {
+                        const last = index === turn.replies.length - 1;
+                        switch (reply.kind) {
+                          case "tools":
+                            return (
+                              <details className="activity" key={index} open={live && last ? true : undefined}>
+                                <summary>
+                                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                                    <path d="M6 4l4 4-4 4" />
+                                  </svg>
+                                  <span className={live && last ? "shimmer" : undefined}>
+                                    {live && last
+                                      ? `Working: ${reply.names[reply.names.length - 1]}`
+                                      : `Ran ${reply.names.length} ${reply.names.length === 1 ? "step" : "steps"}`}
+                                  </span>
+                                </summary>
+                                <ol>
+                                  {reply.names.map((name, nameIndex) => (
+                                    <li key={nameIndex}>
+                                      <code>{name}</code>
+                                    </li>
+                                  ))}
+                                </ol>
+                              </details>
+                            );
+                          case "saved":
+                            return (
+                              <figure className="diff" key={index}>
+                                <figcaption>
+                                  <span>{reply.name}</span>
+                                  <code>{reply.route}</code>
+                                </figcaption>
+                                <pre>
+                                  {reply.diff.split("\n").map((line, lineIndex) => (
+                                    <span className={diffLineClass(line)} key={lineIndex}>
+                                      {line}
+                                      {"\n"}
+                                    </span>
+                                  ))}
+                                </pre>
+                              </figure>
+                            );
+                          case "rejected":
+                            return (
+                              <p className="notice" key={index}>
+                                {reply.name ? <strong>{reply.name} was rejected. </strong> : null}
+                                {reply.reason}
+                              </p>
+                            );
+                          case "answer":
+                            return (
+                              <p className="answer" key={index}>
+                                {reply.text}
+                              </p>
+                            );
+                          case "error":
+                            return (
+                              <p className="notice error" key={index}>
+                                {reply.message}
+                              </p>
+                            );
+                        }
+                      })}
+                      {live && turn.replies[turn.replies.length - 1]?.kind !== "tools" ? (
+                        <p className="thinking shimmer">Thinking…</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
           })}
           <div ref={bottomRef} />
         </div>
 
         {!signedOut && (hooks.length > 0 || hooksError) ? (
-          <div className="hooks">
-            <h2>Your changes</h2>
-            {hooksError ? <p className="error">{hooksError}</p> : null}
+          <details className="hooks">
+            <summary>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M6 4l4 4-4 4" />
+              </svg>
+              Your changes
+              <span className="count">
+                {enabledCount} of {hooks.length} on
+              </span>
+            </summary>
+            {hooksError ? <p className="notice error">{hooksError}</p> : null}
             <ul>
               {hooks.map((hook) => (
                 <li key={hook.name}>
@@ -398,7 +489,7 @@ export default function Page() {
                 </li>
               ))}
             </ul>
-          </div>
+          </details>
         ) : null}
 
         <p className="status" role="status">
@@ -411,11 +502,14 @@ export default function Page() {
             event.preventDefault();
             send();
           }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) composerRef.current?.focus();
+          }}
         >
           <textarea
             ref={composerRef}
             aria-label="Describe a change to this app"
-            placeholder="Describe a change…"
+            placeholder={signedOut ? SIGN_IN : "Ask Fit-it to change this app…"}
             rows={1}
             value={draft}
             disabled={locked}
@@ -427,11 +521,20 @@ export default function Page() {
               }
             }}
           />
-          <button type="submit" className="send" aria-label="Send" disabled={locked || draft.trim() === ""}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
-            </svg>
-          </button>
+          <div className="composer-bar">
+            <span className="hint">Enter to send, Shift + Enter for a new line</span>
+            <button type="submit" className="send" aria-label="Send" disabled={locked || draft.trim() === ""}>
+              {busy ? (
+                <svg viewBox="0 0 16 16" aria-hidden="true" className="spin">
+                  <path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" />
+                </svg>
+              )}
+            </button>
+          </div>
         </form>
       </section>
     </main>

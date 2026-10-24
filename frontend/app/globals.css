@@ -1,21 +1,23 @@
 :root {
-  --ink: #ececf1;
-  --ink-soft: #a3a6b1;
-  --ink-faint: #737784;
-  --line: #2a2c33;
-  --line-strong: #3a3d46;
-  --surface: #16171b;
-  --surface-raised: #1f2026;
-  --surface-sunk: #0f1013;
-  --accent: #ececf1;
-  --accent-ink: #16171b;
-  --on: #3fb96f;
-  --add: #7ee2a2;
-  --add-bg: rgba(63, 185, 111, 0.14);
-  --del: #ff8a8a;
-  --del-bg: rgba(255, 99, 99, 0.13);
-  --focus: #7aa2ff;
-  --radius: 16px;
+  --ink: #edebe7;
+  --ink-soft: #b5b1aa;
+  --ink-faint: #8f8b84;
+  --line: #2e2d2a;
+  --line-strong: #3d3b37;
+  --surface: #1c1b19;
+  --surface-raised: #262522;
+  --surface-hover: #302e2b;
+  --surface-sunk: #151412;
+  --bubble: #2f2d2a;
+  --on: #4cc47e;
+  --on-ink: #0f1a13;
+  --add: #86e0a8;
+  --add-bg: rgba(76, 196, 126, 0.13);
+  --del: #ff9a8f;
+  --del-bg: rgba(255, 110, 95, 0.12);
+  --focus: #8fb4ff;
+  --radius: 18px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
 
@@ -24,7 +26,7 @@
   color: var(--ink);
   font-family: var(--sans);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -37,6 +39,11 @@ body {
   margin: 0;
   height: 100%;
   background: transparent;
+}
+
+::selection {
+  background: rgba(76, 196, 126, 0.32);
+  color: var(--ink);
 }
 
 button,
@@ -68,37 +75,45 @@ code {
   height: 100%;
 }
 
+.mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: var(--on);
+}
+
+.mark path {
+  fill: none;
+  stroke: var(--on-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* The iframe clips anything outside it, so every shadow must fit inside this gap. */
 .launcher {
   position: fixed;
   right: 10px;
   bottom: 10px;
   display: inline-flex;
-  gap: 8px;
+  gap: 9px;
   align-items: center;
   height: 44px;
-  padding: 0 18px 0 14px;
+  padding: 0 18px 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: var(--surface);
   color: var(--ink);
   font-weight: 600;
-  letter-spacing: 0.01em;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  transition: transform 160ms ease-out, box-shadow 160ms ease-out;
+  transition:
+    transform 200ms var(--ease),
+    box-shadow 200ms var(--ease);
 }
 
 .launcher:hover {
   transform: translateY(-1px);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.34);
-}
-
-.launcher-mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--on);
-  box-shadow: 0 0 0 3px rgba(63, 185, 111, 0.2);
 }
 
 .panel {
@@ -118,7 +133,7 @@ code {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 1;
+  z-index: 2;
   display: grid;
   place-items: center;
   width: 22px;
@@ -150,23 +165,21 @@ code {
 .panel-header {
   display: flex;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 12px 22px;
-  border-bottom: 1px solid var(--line);
+  padding: 10px 10px 10px 24px;
+}
+
+.title {
+  display: flex;
+  gap: 9px;
+  align-items: center;
 }
 
 .panel-header h1 {
   margin: 0;
   font-size: 15px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.panel-header p {
-  margin: 2px 0 0;
-  color: var(--ink-soft);
-  font-size: 13px;
+  font-weight: 600;
 }
 
 .icon-button {
@@ -175,13 +188,13 @@ code {
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--ink-soft);
 }
 
 .icon-button:hover {
-  background: var(--surface-raised);
+  background: var(--surface-hover);
   color: var(--ink);
 }
 
@@ -200,59 +213,207 @@ code {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 28px;
   min-height: 0;
-  padding: 16px 18px;
+  padding: 12px 20px 20px;
   overflow-y: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
 }
 
-.transcript > * {
+.transcript p {
   margin: 0;
 }
 
-.empty {
+.welcome {
   margin: auto 0;
-  color: var(--ink-faint);
-  text-align: center;
-  text-wrap: pretty;
+  padding: 8px 4px;
 }
 
-.bubble {
-  max-width: 88%;
-  padding: 9px 13px;
+.welcome h2 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.welcome > p {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.suggestions button {
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
   border-radius: 14px;
+  background: transparent;
+  color: var(--ink-soft);
+  text-align: left;
+  text-wrap: pretty;
+  transition:
+    background 200ms var(--ease),
+    color 200ms var(--ease),
+    border-color 200ms var(--ease);
+}
+
+.suggestions button:hover:not(:disabled) {
+  border-color: #4a4843;
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+
+.suggestions button:disabled {
+  opacity: 0.5;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.user-message {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 10px 16px;
+  border-radius: 20px;
+  background: var(--bubble);
+  font-size: 15px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.bubble.user {
-  align-self: flex-end;
-  border-bottom-right-radius: 4px;
-  background: var(--accent);
-  color: var(--accent-ink);
+.reply {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
 
-.bubble.agent {
-  align-self: flex-start;
-  border-bottom-left-radius: 4px;
-  background: var(--surface-raised);
+.reply > .mark {
+  margin-top: 2px;
 }
 
-.tool {
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 12px;
+.reply-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
-.error {
-  color: var(--del);
+.answer {
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+.thinking {
+  font-size: 15px;
+}
+
+.shimmer {
+  color: var(--ink);
+  mask: linear-gradient(90deg, #0008 0%, #000 45%, #0008 90%) 0 0 / 220% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    mask-position: 110% 0;
+  }
+  to {
+    mask-position: -110% 0;
+  }
+}
+
+.activity summary,
+.hooks summary {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.activity summary::-webkit-details-marker,
+.hooks summary::-webkit-details-marker {
+  display: none;
+}
+
+.activity summary:hover,
+.hooks summary:hover {
+  color: var(--ink);
+}
+
+.activity summary svg,
+.hooks summary svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 200ms var(--ease);
+}
+
+.activity[open] summary svg,
+.hooks[open] summary svg {
+  transform: rotate(90deg);
+}
+
+.activity ol {
+  margin: 8px 0 0 6px;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--line-strong);
+  list-style: none;
+}
+
+.activity li {
+  padding: 2px 0;
+}
+
+.activity li code {
+  color: var(--ink-faint);
+}
+
+.notice {
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.notice strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.notice.error {
+  border-color: rgba(255, 110, 95, 0.3);
+  background: var(--del-bg);
+  color: var(--del);
+}
+
 .diff {
+  margin: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
   background: var(--surface-sunk);
 }
 
@@ -261,30 +422,35 @@ code {
   gap: 8px;
   align-items: baseline;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-raised);
   font-weight: 600;
 }
 
 .diff figcaption code {
-  color: var(--ink-soft);
+  overflow: hidden;
+  color: var(--ink-faint);
   font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .diff pre {
-  max-height: 260px;
+  max-height: 280px;
   margin: 0;
-  padding: 8px 0;
+  padding: 10px 0;
   overflow: auto;
   font-family: var(--mono);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .diff pre span {
   display: block;
-  padding: 0 12px;
+  padding: 0 14px;
   white-space: pre;
 }
 
@@ -299,21 +465,25 @@ code {
 }
 
 .hooks {
-  max-height: 34%;
-  padding: 10px 18px 6px;
+  max-height: 36%;
+  margin: 0 12px;
+  padding: 8px 12px;
   overflow-y: auto;
   border-top: 1px solid var(--line);
 }
 
-.hooks h2 {
-  margin: 0 0 4px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 600;
+.hooks summary {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.hooks .count {
+  color: var(--ink-faint);
+  font-weight: 400;
 }
 
 .hooks ul {
-  margin: 0;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -345,7 +515,7 @@ code {
   border-radius: 999px;
   background: var(--line-strong);
   cursor: pointer;
-  transition: background 160ms ease-out;
+  transition: background 200ms var(--ease);
 }
 
 .switch input::after {
@@ -356,9 +526,9 @@ code {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #f4f4f6;
+  background: #f4f2ee;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  transition: transform 160ms ease-out;
+  transition: transform 200ms var(--ease);
 }
 
 .switch input:checked {
@@ -398,7 +568,7 @@ code {
   flex: none;
   min-height: 32px;
   padding: 0 10px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--ink-soft);
@@ -416,9 +586,9 @@ code {
 
 .status {
   margin: 0;
-  padding: 0 18px 6px;
+  padding: 0 24px 8px;
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .status:empty {
@@ -426,31 +596,36 @@ code {
 }
 
 .composer {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
   margin: 0 12px 12px;
-  padding: 6px 6px 6px 12px;
+  padding: 12px 10px 10px 16px;
   border: 1px solid var(--line-strong);
-  border-radius: 14px;
+  border-radius: 22px;
   background: var(--surface-raised);
-  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+  cursor: text;
+  transition:
+    border-color 200ms var(--ease),
+    box-shadow 200ms var(--ease);
 }
 
 .composer:focus-within {
-  border-color: #4b4f5a;
-  box-shadow: 0 0 0 3px rgba(122, 162, 255, 0.16);
+  border-color: #55524c;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
 }
 
 .composer textarea {
-  flex: 1;
-  min-height: 32px;
-  max-height: 140px;
-  padding: 6px 0;
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  max-height: 160px;
+  padding: 0 6px 0 0;
   resize: none;
   border: 0;
   background: transparent;
+  caret-color: var(--on);
+  font-size: 15px;
+  line-height: 1.5;
   field-sizing: content;
+  scrollbar-width: thin;
 }
 
 .composer textarea:focus-visible {
@@ -462,19 +637,42 @@ code {
 }
 
 .composer textarea:disabled {
-  opacity: 0.55;
+  cursor: default;
+}
+
+.composer-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.hint {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .send {
   display: grid;
   flex: none;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border: 0;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--accent-ink);
+  border-radius: 50%;
+  background: var(--on);
+  color: var(--on-ink);
+  transition:
+    background 200ms var(--ease),
+    transform 200ms var(--ease);
+}
+
+.send:hover:not(:disabled) {
+  transform: scale(1.05);
 }
 
 .send:disabled {
@@ -482,8 +680,24 @@ code {
   color: var(--ink-faint);
 }
 
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+    animation: none !important;
+  }
+
+  .shimmer {
+    mask: none;
+    color: var(--ink-soft);
   }
 }
