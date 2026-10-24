@@ -53,7 +53,7 @@ def run(data, ctx):
 A hook is rejected if its source:
 1. is not valid Python;
 2. contains `import`, `from ... import`, `global` or `nonlocal`;
-3. uses any name or attribute that starts with `_`;
+3. uses any name or attribute that starts with `_`, any attribute that starts with `f_ gi_ cr_ ag_ tb_ co_`, or the attributes `format format_map mro`, or contains `try`, `with` or `async`;
 4. uses any of these names: `eval exec compile open globals locals vars getattr setattr delattr input breakpoint type object print`;
 5. does not define a string `ROUTE` in the format above and a callable `run`.
 
