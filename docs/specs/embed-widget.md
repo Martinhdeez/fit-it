@@ -11,9 +11,8 @@ Iteration 03. The v2 text is in git history (`git show 6554dff:docs/specs/embed-
 | 1 | "My features" replaces the hook list: one list of own hooks and subscribed features, from `GET /fitit/features` ("My features"). | No (the old routes stay) | WM1 |
 | 2 | A marketplace panel: search, detail, subscribe, fork, report, publish, unpublish ("Marketplace panel"). | No (addition) | WM1 |
 | 3 | The app also reloads after a `done` that follows a `feature_changed` event. | No | WM1 |
-| 4 | Sizing contract: a `resize` message for a user-resizable panel (ADR 0016). | No (addition) | WM1 |
 
-Delivery is unchanged.
+Delivery and the sizing contract are unchanged.
 
 ## Delivery
 
@@ -29,7 +28,6 @@ The iframe posts to its parent (`window.parent.postMessage(msg, location.origin)
 |---|---|
 | `{"fitit": "open"}` | `min(420px, 100vw - 32px)` x `min(640px, 100vh - 32px)` |
 | `{"fitit": "close"}` | 64 x 64 px |
-| `{"fitit": "resize", "width": number, "height": number}` | `width` x `height` px. Both are finite numbers already clamped by the panel to the viewport minus a small margin; the loader still clamps them to 64 … viewport − 32 px and ignores the message if either is not a finite number. The panel stores the size and sends it again after each `open`; Home or a double-click on the resize handle sends `open` to reset. |
 
 The loader ignores messages whose `source` is not its iframe or whose origin is not the page's origin.
 
