@@ -1,0 +1,6 @@
+.env
+backups/
+*.sql
+*.sql.gz
+*site_config.json
+__pycache__/
