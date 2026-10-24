@@ -1,6 +1,8 @@
 """Coding agent: turns a chat message into a validated hook. Spec: docs/specs/agent.md."""
 import json
 import os
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
 from psycopg.types.json import Jsonb
@@ -20,9 +22,11 @@ A hook rewrites the JSON body of one endpoint of the app, for this user only. Th
 
 How to work:
 - Always call list_endpoints, then get_endpoint on the relevant GET endpoint to see real data, before writing a hook.
-- Change only what the user asked for. One hook per request. Use list_hooks and read_hook to edit an existing hook
-  instead of adding a second one for the same change.
+- Change only what the user asked for. One hook per request.
+- To change an existing behaviour, read_hook it, then write_hook with the SAME name and the new code. Never add a
+  second hook for something an existing hook already does.
 - write_hook validates and dry-runs the code. If it is rejected, read the reason, fix the code and call it again.
+- When the user asks to undo or go back, call undo_hook with the hook's name.
 - Answer in the user's language, in at most three sentences.
 
 Hook contract. A hook is one Python file with exactly this shape:
@@ -62,11 +66,44 @@ class Deps:
     api: object
     events: list = field(default_factory=list)  # hook_saved / hook_rejected, flushed after each tool result
     rejections: int = 0
+    hooks: str = ""  # the user's hooks when the message started, for the instructions
+
+
+# ponytail: in memory, per process; Postgres-backed if the core scales out (plan 02, Next)
+_sent: dict[str, deque] = defaultdict(deque)
+
+
+def reset_rate_limits() -> None:
+    _sent.clear()
+
+
+def rate_limited(user: str) -> bool:
+    """Counts this message, unless the user already sent FITIT_AGENT_MESSAGES_PER_HOUR in the last hour."""
+    limit = int(os.environ.get("FITIT_AGENT_MESSAGES_PER_HOUR", "60"))
+    now, sent = time.monotonic(), _sent[user]
+    while sent and sent[0] <= now - 3600:
+        sent.popleft()
+    if len(sent) >= limit:
+        return True
+    sent.append(now)
+    return False
+
+
+def hooks_summary(user: str) -> str:
+    return "\n".join(f"- {h['name']}: {h['route']} ({'enabled' if h['enabled'] else 'disabled'})"
+                     for h in hooks.list_hooks(user)) or "no hooks yet"
 
 
 # No model here: FITIT_MODEL is read at run time (handle_ws), so importing needs no API key.
 # instructions, not system_prompt: sent with every request, so it survives the history window (ADR 0019).
 agent = Agent(deps_type=Deps, output_type=str, instructions=SYSTEM_PROMPT, retries=3)
+
+
+@agent.instructions
+def current_hooks(ctx: RunContext[Deps]) -> str:
+    if not ctx.deps.hooks:  # read once, at the message's first model request
+        ctx.deps.hooks = hooks_summary(ctx.deps.user)
+    return "The user's current hooks (name: route):\n" + ctx.deps.hooks
 
 
 def model_name() -> str:
@@ -143,6 +180,22 @@ def delete_hook(ctx: RunContext[Deps], name: str) -> str:
     return f"deleted {name}"
 
 
+@agent.tool
+def undo_hook(ctx: RunContext[Deps], name: str) -> str:
+    """Restore the previous version of one of the user's hooks."""
+    deps = ctx.deps
+    try:
+        version, diff = hooks.undo_hook(deps.user, name)
+    except KeyError:
+        raise ModelRetry(f"no hook named '{name}'")
+    except ValueError:
+        return "nothing to undo: no earlier version"
+    route = next(h["route"] for h in hooks.list_hooks(deps.user) if h["name"] == name)
+    deps.events.append({"type": "hook_saved", "name": name, "route": route, "diff": diff})
+    trace.emit("hook.restored", user=deps.user, hook=name, version=version)
+    return f"restored version {version}"
+
+
 def dry_run(deps: Deps, name: str, code: str, method: str, path: str):
     """Run the candidate hook the way the runtime does. Returns its output, or None if the route is skipped."""
     virtual = path.startswith("/x/")
@@ -190,6 +243,11 @@ async def handle_ws(websocket, user: str, api) -> None:
             await websocket.send_json({"type": "done"})
             continue
         trace.emit("agent.message", user=user, text=text)
+        if rate_limited(user):
+            limit = os.environ.get("FITIT_AGENT_MESSAGES_PER_HOUR", "60")
+            await websocket.send_json({"type": "error", "message": f"rate limit: at most {limit} messages per hour"})
+            await websocket.send_json({"type": "done"})
+            continue
         deps = Deps(user=user, api=api)
 
         async def flush():
@@ -212,7 +270,9 @@ async def handle_ws(websocket, user: str, api) -> None:
                                 await flush()
             await flush()
             save_turn(user, run.result.new_messages())
-            trace.emit("agent.answer", user=user, text=run.result.output)
+            usage = run.result.usage
+            trace.emit("agent.answer", user=user, text=run.result.output,
+                       input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
             await websocket.send_json({"type": "text", "text": run.result.output})
         except Exception as e:
             await flush()
