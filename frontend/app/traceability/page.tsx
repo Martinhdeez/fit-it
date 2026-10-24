@@ -59,7 +59,8 @@ function Sankey({ flows, columns }: { flows: Flow[]; columns: string[] }) {
   const layout = useMemo(() => {
     const links = new Map<string, number>();
     const nodes = columns.map(() => new Map<string, { in: number; out: number }>());
-    for (const f of flows)
+    // Anonymous requests have user null; the link keys are strings, so node names must be strings too.
+    for (const f of flows.map((raw) => raw.slice(0, columns.length).map((s) => String(s ?? "anonymous"))))
       f.forEach((name, c) => {
         const n = nodes[c].get(name) ?? { in: 0, out: 0 };
         if (c > 0) n.in++;
