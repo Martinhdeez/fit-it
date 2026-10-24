@@ -26,7 +26,7 @@ BANNED_ATTRS = {"format", "format_map", "mro"}
 SAFE_BUILTINS = {
     f.__name__: f
     for f in (len, sum, min, max, abs, round, sorted, reversed, any, all, enumerate, zip, range, map, filter,
-              str, int, float, bool, list, dict, set, tuple, isinstance)
+              str, int, float, bool, list, dict, set, tuple, isinstance, next, iter)
 }
 
 
