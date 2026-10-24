@@ -30,3 +30,5 @@ Rules:
 | [0019](0019-persistent-chat-history.md) | Persistent chat history per user | Accepted |
 | [0020](0020-hook-time-limit-and-safety-limits.md) | Hook time limit, output cap and agent rate limit | Accepted |
 | [0021](0021-real-model-evals-on-demand.md) | Real-model evaluation set, run on demand | Accepted |
+| [0022](0022-feature-marketplace.md) | Feature marketplace inside one app | Accepted |
+| [0023](0023-features-run-as-the-subscriber.md) | Subscribed features run as the subscriber | Accepted |

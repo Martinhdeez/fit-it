@@ -1,21 +1,17 @@
-# Hook contract — v2
+# Hook contract — v3
 
-What a hook is, how it is stored, validated and run. Decisions: [ADR 0004](../adr/0004-per-user-python-hooks-in-process.md), [ADR 0005](../adr/0005-fail-closed-hook-execution.md), [ADR 0017](../adr/0017-postgres-as-core-storage.md), [ADR 0018](../adr/0018-hook-versions-and-undo.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md).
+What a hook is, how it is stored, validated and run. Decisions: [ADR 0004](../adr/0004-per-user-python-hooks-in-process.md), [ADR 0005](../adr/0005-fail-closed-hook-execution.md), [ADR 0017](../adr/0017-postgres-as-core-storage.md), [ADR 0018](../adr/0018-hook-versions-and-undo.md), [ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md), [ADR 0023](../adr/0023-features-run-as-the-subscriber.md).
 
-## Changes from v1
+## Changes from v2
 
-Iteration 02. The v1 text is in git history (`git show a76b931:docs/specs/hook-contract.md`).
+Iteration 03. The v2 text is in git history (`git show 6554dff:docs/specs/hook-contract.md`); the v1 text at `a76b931`.
 
 | # | Change | Breaking | Lands in |
 |---|---|---|---|
-| 1 | Storage moves from `WORKSPACES/<user>/<name>.py[.off]` files to the `hooks` table of the [storage spec](storage.md). `WORKSPACES` is removed. | Yes (tests that wrote hook files) | HS2 |
-| 2 | Every save appends a row to `hook_versions`; new export `undo_hook`. | No (addition) | HS2 |
-| 3 | `run_hooks` returns `(result, applied)` where `applied` is a list of `{"name", "route", "ms", "logs"}` instead of a list of names. | Yes | HS2 |
-| 4 | New export `dry_run(user, code, data, api)`: runs candidate code without saving. | No (addition) | HS2 |
-| 5 | `list_hooks` returns `[]` for a user with no hooks ("no folder" no longer exists). | No | HS2 |
-| 6 | Time limit per hook run and output size cap ("Limits"). v1 had no time limit. | No for valid hooks | SF1 |
+| 1 | `run_hooks` takes an optional `features` argument: subscribed marketplace features, run before the user's own hooks ("Features"). Without it, behaviour is exactly v2. | No (addition) | MK2 |
+| 2 | `delete_hook` also unpublishes the marketplace feature published from that hook, in the same transaction ([marketplace spec](marketplace.md#rules), rule 3). | No | MK2 |
 
-Every other export keeps its v1 signature and behaviour.
+Every other export keeps its v2 signature and behaviour.
 
 ## Storage
 
@@ -81,9 +77,18 @@ Apply to every run of `run` by `run_hooks` and `dry_run`. Variables are read at 
 
 The time limit is enforced with a trace function on the running thread ([ADR 0020](../adr/0020-hook-time-limit-and-safety-limits.md)); after a run, success or failure, the thread's trace function (`sys.gettrace()`) is the one it had before. Known ceiling: a single long call in C is not interrupted.
 
+## Features
+
+A subscribed marketplace feature ([marketplace spec](marketplace.md)) is code the user did not write, run as if they had ([ADR 0023](../adr/0023-features-run-as-the-subscriber.md)). `run_hooks` receives them as `features`, a list of `{"name": "@<feature_id>", "code": str}` (what `marketplace.active(user)` returns), and:
+- runs them **before** the user's own enabled hooks, in list order, then the own hooks in name order, chaining every output into the next input;
+- treats each one exactly like an own hook: guard at load, route matching, same `ctx` (so `ctx.user` is the current user and `ctx.api` their session), same limits, same failure;
+- names it `@<feature_id>` in its `applied` entry and in `HookError.hook`.
+
+`hooks.py` never reads the marketplace tables; it only runs what it is given.
+
 ## Failure
 
-Any exception while loading or running a matching hook, and any breached limit, fails the whole request closed (see [proxy spec](proxy.md), "Errors").
+Any exception while loading or running a matching hook or feature, and any breached limit, fails the whole request closed (see [proxy spec](proxy.md), "Errors").
 
 ## Module contract
 
@@ -98,7 +103,7 @@ Any exception while loading or running a matching hook, and any breached limit, 
 | `save_hook(user, name, code) -> str` | Guards, then in one transaction writes the hook enabled (replacing an enabled or disabled one with the same name), appends a `hook_versions` row with version `max(existing versions of that name) + 1` (or `1`), and sets `hooks.version` to it. Returns a unified diff from the previous code (or from empty), with file labels `a/<name>.py` and `b/<name>.py`. `ValueError` on an invalid user id, name or code, and nothing is written. |
 | `undo_hook(user, name) -> tuple[int, str]` | Restores the code of version `hooks.version - 1` from `hook_versions`: guards it, writes it to `hooks`, sets `hooks.version` to that number, keeps `enabled`. Writes no `hook_versions` row. Returns `(restored_version, diff)`, the diff going from the code before the undo to the restored code. `KeyError` if the hook does not exist; `ValueError` (`"no earlier version"`, or the guard's reason) if there is nothing to restore, and nothing changes. |
 | `toggle_hook(user, name) -> bool` | Flips enabled/disabled, returns the new state; `KeyError` if missing. Writes no version. |
-| `delete_hook(user, name) -> None` | Removes the hook from `hooks`; its `hook_versions` rows stay. `KeyError` if missing. |
-| `run_hooks(user, method, path, data, ctx) -> tuple[object, list[dict]]` | Runs the user's enabled matching hooks in name order, chaining outputs. Returns `(result, applied)`: one entry per hook that ran, in run order, `{"name": str, "route": str, "ms": float, "logs": list[str]}`, where `ms` is that hook's run time in milliseconds and `logs` the lines that hook logged (only its own). If none match, returns `(data, [])`. |
+| `delete_hook(user, name) -> None` | Removes the hook from `hooks`; its `hook_versions` rows stay. In the same transaction, sets `published` to false on the `features` row with that `owner_id` and `hook_name`, if any. `KeyError` if missing. |
+| `run_hooks(user, method, path, data, ctx, features=()) -> tuple[object, list[dict]]` | Runs the matching entries of `features` in list order ("Features"), then the user's enabled matching hooks in name order, chaining outputs. Returns `(result, applied)`: one entry per hook or feature that ran, in run order, `{"name": str, "route": str, "ms": float, "logs": list[str]}`, where `name` is the hook name or `@<feature_id>`, `ms` is its run time in milliseconds and `logs` the lines it logged (only its own). If none match, returns `(data, [])`. |
 | `dry_run(user, code, data, api) -> object` | Guards `code` (`ValueError` with the reason), then runs its `run(data, Ctx(user, api))` exactly as `run_hooks` would, limits included, and returns the output. Raises `HookError` with `.hook` `None` if `run` raises, breaches a limit or returns a value that is not JSON-serializable. Writes nothing to the database. Does not check that `ROUTE` matches anything. |
-| `HookError` | Raised by `run_hooks` and `dry_run` when a hook fails; has `.hook` (name, or `None` from `dry_run`) and `str(error)` (detail) |
+| `HookError` | Raised by `run_hooks` and `dry_run` when a hook fails; has `.hook` (hook name, `@<feature_id>` for a feature, or `None` from `dry_run`) and `str(error)` (detail) |

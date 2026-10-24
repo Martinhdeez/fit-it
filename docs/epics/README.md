@@ -15,6 +15,7 @@ Each epic is a slice of the product with stories and their acceptance criteria. 
 | [E9 Agent quality](e9-agent-quality.md) | AG2 | 02 | Agents | Planned |
 | [E10 Safety limits for hooks](e10-safety-limits.md) | SF1 | 02 | Agents | Planned |
 | [E11 Real-model evals](e11-evals.md) | EV1 | 02 | Agents | Planned |
+| [E12 Feature marketplace](e12-marketplace.md) | MK1, MK2, AG3, EV2, WM1 | 03 | Agents; WM1 frontend teammate | Planned |
 
 ## Brief for an agent
 
