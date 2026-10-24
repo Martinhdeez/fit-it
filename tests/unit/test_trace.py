@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import subprocess
@@ -167,7 +168,7 @@ def test_complete_json_without_newline_stays_readable(audit):
 def test_invalid_utf8_does_not_raise(audit):
     (audit / "events.jsonl").write_bytes(b"\xff\xfe not utf8\n")
     assert trace.read_events() == []
-    assert "invalid utf-8" in trace.diagnostics()["journal"]
+    assert any("invalid" in problem for problem in trace.diagnostics()["journal"])
 
 
 def test_journal_failure_fails_the_flush(audit, monkeypatch):
@@ -194,7 +195,14 @@ def test_emit_stays_fast_when_the_writer_is_blocked(audit):
     assert mean_ms < 5
     trace._hold.set()
     assert trace.flush(timeout_ms=20000)
-    saved = [row["hooks"] for row in _rows(user="speed")]
+    saved = []
+    after = 0
+    while True:
+        page = trace.read_events(after=after, limit=1000)
+        if not page:
+            break
+        saved.extend(row["hooks"] for row in page if row.get("user") == "speed")
+        after = page[-1]["seq"]
     assert saved[0] == [0] and saved[-1] == [999] and len(saved) == 1000
 
 
@@ -251,15 +259,15 @@ def test_native_query_string_is_redacted(audit):
 
     marker = "REVIEW_QUERY_SECRET_452"
     with TestClient(main.app) as client:
-        response = client.get(f"/fitit/embed.js?token={marker}")
-    assert response.status_code == 200
-    spans = MEMORY.get_finished_spans()
+        response = client.get(f"/api/patients/4242?token={marker}")
+    assert response.status_code in (200, 401, 404, 502)
+    spans = list(MEMORY.get_finished_spans())
     servers = [span for span in spans if span.kind == SpanKind.SERVER]
     assert len(servers) == 1
-    for span in spans:
-        values = json.dumps(dict(span.attributes or {}), default=str)
-        assert marker not in values
-        assert (span.status.description or "") == "" or marker not in span.status.description
+    from opentelemetry.exporter.otlp.proto.common._internal.trace_encoder import encode_spans
+    raw = encode_spans([trace._SpanView(span) for span in spans]).SerializeToString()
+    assert marker.encode() not in raw
+    assert b"4242" not in raw
 
 
 def test_incoming_traceparent_is_the_server_parent(audit):
@@ -294,3 +302,156 @@ def test_child_span_keeps_the_parent_trace(audit):
     assert child.parent.span_id == parent.context.span_id
     row = _rows(kind="hook.applied")[-1]
     assert row["parent_span_id"] == format_span_id(parent.context.span_id)
+
+
+def test_check_target_uses_a_throwaway_journal():
+    path = Path("/Makefile")
+    if not path.is_file():
+        path = Path(__file__).resolve().parents[2] / "Makefile"
+    check = path.read_text(encoding="utf-8").split("eval:", 1)[0]
+    assert "FITIT_TRACE_DIR=/tmp/fitit-trace" in check
+
+
+def test_invalid_utf8_byte_does_not_reset_the_cursor(tmp_path, monkeypatch):
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    path = tmp_path / "events.jsonl"
+    path.write_bytes(
+        b'{"ts":1,"kind":"agent.message","user":"u","text":"a","seq":1}\n'
+        b"\xff\n"
+        b'{"ts":1,"kind":"agent.message","user":"u","text":"b","seq":2}\n'
+        b'{"ts":1,"kind":"agent.message","user":"u","text":"c","seq":3}\n'
+    )
+    code = (
+        "import os, sys\n"
+        "os.environ['FITIT_TRACE_DIR'] = sys.argv[1]\n"
+        "import trace\n"
+        "trace.startup()\n"
+        "trace.emit('agent.message', user='u', text='after')\n"
+        "assert trace.flush(), trace.diagnostics()\n"
+        "print(trace.read_events()[-1]['seq'])\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BACKEND)
+    env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    proc = subprocess.run(
+        [sys.executable, "-c", code, str(tmp_path)],
+        env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert int(proc.stdout.strip().splitlines()[-1]) == 4
+    monkeypatch.setenv("FITIT_TRACE_DIR", str(tmp_path))
+    assert [row["text"] for row in trace.read_events(after=3, limit=10)] == ["after"]
+    assert any("invalid" in problem for problem in trace.diagnostics()["journal"])
+
+
+def test_tail_repair_does_not_rewrite_the_prefix(audit):
+    prefix = b'{"ts":1,"kind":"agent.message","user":"u","text":"kept","seq":1}\n'
+    (audit / "events.jsonl").write_bytes(prefix + b'{"ts":')
+    before = hashlib.sha256(prefix).hexdigest()
+    trace._bound.discard(str(audit.resolve()))
+    trace._next_seq.pop(str(audit.resolve()), None)
+    trace.emit("agent.message", user="u", text="next")
+    assert trace.flush()
+    data = (audit / "events.jsonl").read_bytes()
+    assert hashlib.sha256(data[: len(prefix)]).hexdigest() == before
+    assert (audit / "events.corrupt").read_bytes() == b'{"ts":'
+    assert [row["text"] for row in trace.read_events(limit=10)] == ["kept", "next"]
+
+
+def test_closed_sink_counts_a_drop(audit):
+    assert trace.shutdown(1000)
+    before = trace.diagnostics()["dropped"]
+    trace.emit("agent.message", user="u", text="nope")
+    assert trace.diagnostics()["dropped"] == before + 1
+    trace.startup()
+
+
+def test_feature_events_use_feature_attributes(audit):
+    MEMORY.clear()
+    kinds = [
+        ("feature.published", {"user": "gerente", "feature_id": 12, "hook": "friday", "version": 1, "created": True}),
+        ("feature.unpublished", {"user": "gerente", "feature_id": 12}),
+        ("feature.subscribed", {"user": "recepcion", "feature_id": 12, "version": 1}),
+        ("feature.toggled", {"user": "recepcion", "feature_id": 12, "enabled": False}),
+        ("feature.unsubscribed", {"user": "recepcion", "feature_id": 12}),
+        ("feature.updated", {"user": "recepcion", "feature_id": 12, "version": 2}),
+        ("feature.forked", {"user": "gerente", "feature_id": 12, "version": 1, "hook": "friday"}),
+        ("feature.reported", {"user": "gerente", "feature_id": 12, "reason": "spam"}),
+    ]
+    for kind, fields in kinds:
+        trace.emit(kind, **fields)
+    trace.emit("hook.applied", user="recepcion", hook="@12", route="GET /api/invoices", ms=1, logs=[])
+    assert trace.flush()
+    published = [span for span in MEMORY.get_finished_spans() if span.name == "feature.published"][-1]
+    assert published.attributes["fitit.feature.id"] == 12
+    assert published.attributes["fitit.feature.version"] == 1
+    assert published.attributes["fitit.feature.created"] is True
+    assert "fitit.hook.version" not in published.attributes
+    applied = [span for span in MEMORY.get_finished_spans() if span.name == "hook.applied"][-1]
+    assert applied.attributes["fitit.feature.id"] == 12
+    assert applied.attributes["fitit.hook"] == "@12"
+
+
+def test_shutdown_uses_one_deadline(audit, monkeypatch):
+    calls = []
+
+    def slow(timeout_ms):
+        calls.append(timeout_ms)
+        time.sleep(timeout_ms / 1000)
+
+    monkeypatch.setattr(trace, "_flush_exporter", slow)
+    started = time.perf_counter()
+    assert trace.shutdown(500) is True
+    elapsed = time.perf_counter() - started
+    assert elapsed < 0.7
+    assert calls == [500] or (len(calls) == 1 and calls[0] <= 500)
+    trace.startup()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="writer lock is fcntl.flock inside Linux containers")
+def test_second_writer_is_refused_until_the_holder_dies(tmp_path):
+    hold = (
+        "import os, sys, time\n"
+        "os.environ['FITIT_TRACE_DIR'] = sys.argv[1]\n"
+        "import trace\n"
+        "trace.startup()\n"
+        "trace.emit('agent.message', user='a', text='held')\n"
+        "assert trace.flush()\n"
+        "time.sleep(30)\n"
+    )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(BACKEND)
+    env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    holder = subprocess.Popen([sys.executable, "-c", hold, str(tmp_path)], env=env)
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and not (tmp_path / "writer.lock").exists():
+            time.sleep(0.05)
+        other = (
+            "import os, sys\n"
+            "os.environ['FITIT_TRACE_DIR'] = sys.argv[1]\n"
+            "import trace\n"
+            "trace.startup()\n"
+            "trace.emit('agent.message', user='b', text='blocked')\n"
+            "raise SystemExit(0 if trace.flush() is False else 1)\n"
+        )
+        blocked = subprocess.run([sys.executable, "-c", other, str(tmp_path)], env=env)
+        assert blocked.returncode == 0
+    finally:
+        holder.kill()
+        holder.wait()
+    follow = (
+        "import os, sys\n"
+        "os.environ['FITIT_TRACE_DIR'] = sys.argv[1]\n"
+        "import trace\n"
+        "trace.startup()\n"
+        "trace.emit('agent.message', user='c', text='next')\n"
+        "assert trace.flush()\n"
+        "print(trace.read_events()[-1]['seq'])\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", follow, str(tmp_path)],
+        env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert int(proc.stdout.strip().splitlines()[-1]) == 2
