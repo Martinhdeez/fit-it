@@ -427,3 +427,14 @@ def test_request_info_parses_form_and_json_bodies():
     assert main.request_info("POST", "/p", "", b'{"chart_name": "C"}')["form"] == {"chart_name": "C"}
     assert main.request_info("GET", "/p", "", b"")["form"] == {}
     assert main.request_info("POST", "/p", "", b"\xff")["form"] == {}
+
+
+def test_suggestions_come_from_the_openapi_file_or_the_clinic_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("FITIT_OPENAPI_FILE", raising=False)
+    assert client().get("/fitit/suggestions").json() == main.SUGGESTIONS
+    spec = tmp_path / "openapi.json"
+    spec.write_text('{"info": {"x-fitit-suggestions": ["a", "b", "c"]}}')
+    monkeypatch.setenv("FITIT_OPENAPI_FILE", str(spec))
+    assert client().get("/fitit/suggestions").json() == ["a", "b", "c"]
+    spec.write_text('{"info": {}}')
+    assert client().get("/fitit/suggestions").json() == main.SUGGESTIONS
