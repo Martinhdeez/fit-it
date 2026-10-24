@@ -649,11 +649,63 @@ code {
 }
 
 .hint {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--ink-faint);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hint.listening {
+  color: var(--ink-soft);
+}
+
+.mic {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  transition:
+    background 200ms var(--ease),
+    color 200ms var(--ease);
+}
+
+.mic svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mic:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.mic:disabled {
+  opacity: 0.45;
+}
+
+.mic.on {
+  background: var(--del-bg);
+  color: var(--del);
+  animation: listening 1.6s ease-in-out infinite;
+}
+
+@keyframes listening {
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 110, 95, 0.12);
+  }
 }
 
 .send {

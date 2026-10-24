@@ -15,6 +15,7 @@ import {
   type AgentEvent,
   type Hook,
 } from "../lib/core";
+import { canDictate, dictationError, startDictation, type Dictation } from "../lib/dictation";
 
 type Connection = "idle" | "connecting" | "open" | "lost" | "signed-out";
 
@@ -115,8 +116,18 @@ export default function Page() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number; size: Size; last: Size } | null>(null);
   const requestedSize = useRef<Size | null>(null);
+  const [micSupported, setMicSupported] = useState(false);
+  const [dictating, setDictating] = useState(false);
+  const [micError, setMicError] = useState("");
+  const dictationRef = useRef<Dictation | null>(null);
 
-  useEffect(() => () => socketRef.current?.close(), []);
+  useEffect(() => {
+    setMicSupported(canDictate());
+    return () => {
+      socketRef.current?.close();
+      dictationRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (open && connection === "open" && !busy) composerRef.current?.focus();
@@ -197,6 +208,7 @@ export default function Page() {
   }
 
   function closePanel() {
+    dictationRef.current?.abort();
     setOpen(false);
     tellHost({ fitit: "close" });
   }
@@ -243,11 +255,35 @@ export default function Page() {
     const text = draft.trim();
     const socket = socketRef.current;
     if (!text || busy || connection !== "open" || !socket) return;
+    dictationRef.current?.abort();
     savedThisTurn.current = false;
     add({ kind: "prompt", text });
     setDraft("");
     setBusy(true);
     sendMessage(socket, text);
+  }
+
+  function toggleDictation() {
+    if (dictationRef.current) {
+      dictationRef.current.stop();
+      return;
+    }
+    const base = draft.trim() === "" ? "" : `${draft.trimEnd()} `;
+    setMicError("");
+    try {
+      dictationRef.current = startDictation(
+        (text) => setDraft(base + text.trimStart()),
+        (error) => {
+          dictationRef.current = null;
+          setDictating(false);
+          if (error) setMicError(dictationError(error) ?? "");
+          composerRef.current?.focus();
+        },
+      );
+      setDictating(true);
+    } catch {
+      setMicError(dictationError("") ?? "");
+    }
   }
 
   async function changeHook(name: string, action: (name: string) => Promise<void>) {
@@ -279,9 +315,9 @@ export default function Page() {
     ? SIGN_IN
     : connection === "connecting"
       ? "Connecting…"
-      : connection === "lost"
-        ? "Connection lost. Close and reopen Fit-it to retry."
-        : "";
+        : connection === "lost"
+          ? "Connection lost. Close and reopen Fit-it to retry."
+          : micError;
   const turns = toTurns(items);
   const enabledCount = hooks.filter((hook) => hook.enabled).length;
 
@@ -514,7 +550,10 @@ export default function Page() {
             rows={1}
             value={draft}
             disabled={locked}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              dictationRef.current?.abort();
+              setDraft(event.target.value);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -523,7 +562,24 @@ export default function Page() {
             }}
           />
           <div className="composer-bar">
-            <span className="hint">Enter to send, Shift + Enter for a new line</span>
+            <span className={dictating ? "hint listening" : "hint"}>
+              {dictating ? "Listening… click the mic to stop" : "Enter to send, Shift + Enter for a new line"}
+            </span>
+            {micSupported ? (
+              <button
+                type="button"
+                className={dictating ? "mic on" : "mic"}
+                aria-label={dictating ? "Stop dictation" : "Dictate"}
+                aria-pressed={dictating}
+                disabled={locked}
+                onClick={toggleDictation}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="5.5" y="1.75" width="5" height="8" rx="2.5" />
+                  <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2" />
+                </svg>
+              </button>
+            ) : null}
             <button type="submit" className="send" aria-label="Send" disabled={locked || draft.trim() === ""}>
               {busy ? (
                 <svg viewBox="0 0 16 16" aria-hidden="true" className="spin">
