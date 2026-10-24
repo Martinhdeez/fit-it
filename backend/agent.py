@@ -209,7 +209,12 @@ def list_conversations(user: str) -> list[dict]:
 @agent.tool
 def list_endpoints(ctx: RunContext[Deps]) -> str:
     """List the app's endpoints, one `METHOD path: summary` line per operation."""
-    spec = ctx.deps.api.get("/openapi.json")
+    file = os.environ.get("FITIT_OPENAPI_FILE")
+    if file:
+        with open(file) as f:
+            spec = json.load(f)
+    else:
+        spec = ctx.deps.api.get("/openapi.json")
     return "\n".join(
         f"{method.upper()} {path}: {op.get('summary', '')}"
         for path, ops in spec.get("paths", {}).items()
