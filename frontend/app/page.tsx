@@ -84,7 +84,7 @@ function chatLabel(chat: ChatWindow): string {
 
 const SIGN_IN = "Sign in to the app first";
 
-const SUGGESTIONS = [
+const FALLBACK_SUGGESTIONS = [
   "Apply a 15% discount to invoices issued on a Friday",
   "Hide the phone number of patients who owe money",
   "Give me a page with total unpaid debt per doctor",
@@ -192,6 +192,7 @@ export default function Page() {
   const [chatsOpen, setChatsOpen] = useState(false);
   const [sheet, setSheet] = useState<null | "features" | "market">(null);
   const [features, setFeatures] = useState<Feature[]>([]);
+  const [suggestions, setSuggestions] = useState<string[] | null>(null);
   const [featuresError, setFeaturesError] = useState("");
   const [featuresLoaded, setFeaturesLoaded] = useState(false);
   const [pendingFeature, setPendingFeature] = useState("");
@@ -446,6 +447,11 @@ export default function Page() {
     if (size) resizeTo(size, false);
     setOpen(true);
     void loadFeatures();
+    if (!suggestions) {
+      fetch("/fitit/suggestions")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then(setSuggestions, () => setSuggestions(FALLBACK_SUGGESTIONS));
+    }
     if (signedOutRef.current) return;
     for (const chat of windowsRef.current) connectWindow(chat.key, chat.conversationId);
     void refreshConversations();
@@ -1033,7 +1039,7 @@ export default function Page() {
               <h2>What should this app do for you?</h2>
               <p>Describe a change in plain words. Only you will see it.</p>
               <div className="suggestions">
-                {SUGGESTIONS.map((text) => (
+                {(suggestions ?? FALLBACK_SUGGESTIONS).map((text) => (
                   <button type="button" key={text} disabled={locked} onClick={() => pickSuggestion(text)}>
                     {text}
                   </button>

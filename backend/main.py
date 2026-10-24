@@ -263,6 +263,24 @@ def conversation_messages(conversation: str, request: Request):
     return conversation_messages(user, conversation)
 
 
+SUGGESTIONS = [
+    "Apply a 15% discount to invoices issued on a Friday",
+    "Hide the phone number of patients who owe money",
+    "Give me a page with total unpaid debt per doctor",
+]
+
+
+@app.get("/fitit/suggestions")
+def suggestions():
+    file = os.environ.get("FITIT_OPENAPI_FILE")
+    if file:
+        with open(file) as f:
+            custom = json.load(f).get("info", {}).get("x-fitit-suggestions")
+        if custom:
+            return custom
+    return SUGGESTIONS
+
+
 @app.get("/fitit/features")
 def my_features(request: Request):
     user = resolve_user(request.headers.get("cookie", ""))

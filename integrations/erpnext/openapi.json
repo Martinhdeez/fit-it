@@ -3,7 +3,13 @@
   "info": {
     "title": "ERPNext sandbox",
     "version": "16",
-    "description": "Frappe REST API of the ERPNext sandbox; list responses wrap rows in data; by default only name is returned unless fields is passed."
+    "description": "Frappe REST API of the ERPNext sandbox; list responses wrap rows in data; by default only name is returned unless fields is passed.",
+    "x-fitit-suggestions": [
+      "Add a card with today's revenue",
+      "Show the Sales revenue card without VAT",
+      "Make the Sales orders card count only Aurora Clinic",
+      "Hide paid invoices in the Invoice Status chart"
+    ]
   },
   "paths": {
     "/api/resource/Sales Invoice": {
