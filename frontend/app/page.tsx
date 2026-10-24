@@ -69,8 +69,7 @@ function Mark() {
         </linearGradient>
       </defs>
       <rect width="20" height="20" rx="6" fill={`url(#${gradient})`} />
-      <path d="M6 6v7a1 1 0 0 0 1 1h7" />
-      <rect className="mark-piece" x="9" y="6" width="5" height="5" rx="1.5" />
+      <path d="M7.5 14.5v-9h5.5M7.5 10h4.5" />
     </svg>
   );
 }

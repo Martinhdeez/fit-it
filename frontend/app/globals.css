@@ -91,11 +91,6 @@ code {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-.mark .mark-piece {
-  fill: var(--brand-ink);
-}
-
 /* The iframe clips anything outside it, so every shadow must fit inside this gap. */
 .launcher {
   position: fixed;
