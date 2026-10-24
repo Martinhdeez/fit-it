@@ -214,6 +214,23 @@ def list_conversations(user: str) -> list[dict]:
     return result
 
 
+def conversation_messages(user: str, conversation: str) -> list[dict]:
+    """The conversation's prompts and text answers, oldest first, for the widget to show again."""
+    with db.connect() as conn:
+        rows = conn.execute("SELECT turn FROM messages WHERE user_id = %s AND conversation_id = %s ORDER BY id",
+                            (user, conversation)).fetchall()
+    result = []
+    for (turn,) in rows:
+        for m in turn:
+            for p in m.get("parts", []):
+                kind, content = p.get("part_kind"), p.get("content")
+                if kind == "user-prompt" and isinstance(content, str):
+                    result.append({"role": "user", "text": content})
+                elif kind == "text" and m.get("kind") == "response" and content:
+                    result.append({"role": "assistant", "text": content})
+    return result
+
+
 @agent.tool
 def list_endpoints(ctx: RunContext[Deps]) -> str:
     """List the app's endpoints, one `METHOD path: summary` line per operation."""

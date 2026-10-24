@@ -657,3 +657,26 @@ def test_client_disconnect_mid_turn_stops_quietly():
     with agent.agent.override(model=scripted(("list_hooks", {}), "ok")):
         asyncio.run(agent.handle_ws(ws, "alice", Api()))
     assert ws.sends == 1 and not agent._busy
+
+
+def test_conversation_messages_route(monkeypatch, database):
+    import main
+    monkeypatch.setenv("BASE_URL", os.environ.get("DEMO_URL", "http://demo:8001"))
+    c = TestClient(main.app, follow_redirects=False)
+    assert c.get("/fitit/conversations/a/messages").status_code == 401
+    c.get("/login", params={"user": "gerente"})
+    user = c.get("/api/me").json()["id"]
+    assert c.get("/fitit/conversations/a/messages").json() == []
+    turn = [{"kind": "request", "parts": [{"part_kind": "system-prompt", "content": "sys"},
+                                          {"part_kind": "user-prompt", "content": "hi"}]},
+            {"kind": "response", "parts": [{"part_kind": "tool-call", "tool_name": "list_hooks", "args": {}}]},
+            {"kind": "request", "parts": [{"part_kind": "tool-return", "tool_name": "list_hooks", "content": "[]"}]},
+            {"kind": "response", "parts": [{"part_kind": "text", "content": "done"}]}]
+    other = [{"kind": "request", "parts": [{"part_kind": "user-prompt", "content": "secret"}]}]
+    with psycopg.connect(database) as conn:
+        conn.execute("INSERT INTO messages (user_id, turn, conversation_id) VALUES (%s, %s::jsonb, 'a')", (user, json.dumps(turn)))
+        conn.execute("INSERT INTO messages (user_id, turn, conversation_id) VALUES ('other', %s::jsonb, 'a')", (json.dumps(other),))
+    assert c.get("/fitit/conversations/a/messages").json() == [
+        {"role": "user", "text": "hi"}, {"role": "assistant", "text": "done"}]
+    assert c.get(f"/fitit/conversations/{'x' * 65}/messages").status_code == 422
+    assert c.get("/fitit/conversations/a%20b/messages").status_code == 422

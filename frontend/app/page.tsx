@@ -5,6 +5,7 @@ import {
   acceptUpdate,
   ApiError,
   clearHistory,
+  conversationMessages,
   deleteHook,
   errorText,
   featureKey,
@@ -60,6 +61,7 @@ type ChatWindow = {
 type WindowRuntime = {
   socket: WebSocket | null;
   savedThisTurn: boolean;
+  historyLoaded: boolean;
 };
 
 function windowKey(conversationId: string | null): string {
@@ -228,7 +230,7 @@ export default function Page() {
   function runtimeFor(key: string): WindowRuntime {
     const found = runtime.current.get(key);
     if (found) return found;
-    const created: WindowRuntime = { socket: null, savedThisTurn: false };
+    const created: WindowRuntime = { socket: null, savedThisTurn: false, historyLoaded: false };
     runtime.current.set(key, created);
     return created;
   }
@@ -375,9 +377,26 @@ export default function Page() {
   }
   onEventRef.current = onEvent;
 
+  // Show the turns the server stored for this conversation (page load, history list); server data wins over sessionStorage.
+  async function loadMessages(key: string, conversationId: string | null) {
+    const before = windowsRef.current.find((chat) => chat.key === key)?.items;
+    try {
+      const past = await conversationMessages(conversationId ?? "default");
+      if (past.length === 0) return;
+      const items: Item[] = past.map((m) => (m.role === "user" ? { kind: "prompt", text: m.text } : { kind: "answer", text: m.text }));
+      patch(key, (chat) => (chat.items === before && !chat.busy ? { ...chat, items } : chat));
+    } catch (error) {
+      if (error instanceof SignedOut) setSignedOut(true);
+    }
+  }
+
   function connectWindow(key: string, conversationId: string | null) {
     if (signedOutRef.current) return;
     const slot = runtimeFor(key);
+    if (!slot.historyLoaded) {
+      slot.historyLoaded = true;
+      void loadMessages(key, conversationId);
+    }
     const current = slot.socket;
     if (current && current.readyState <= WebSocket.OPEN) return;
 
